@@ -1,184 +1,109 @@
-.counter {
-  font-size: 16px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  color: var(--accent);
-  background: var(--accent-bg);
-  border: 2px solid transparent;
-  transition: border-color 0.3s;
-  margin-bottom: 24px;
+/* ─── MEDCO Split-Screen Master Reset ─────────────────── */
 
-  &:hover {
-    border-color: var(--accent-border);
-  }
-  &:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-  }
+:root {
+  --beige-50: #fdfaf7;
+  --blush-200: #e8d5c4;
+  --blush-500: #c9636a; 
+  --text-dark: #3d3028;
 }
 
-.hero {
-  position: relative;
-
-  .base,
-  .framework,
-  .vite {
-    inset-inline: 0;
-    margin: 0 auto;
-  }
-
-  .base {
-    width: 170px;
-    position: relative;
-    z-index: 0;
-  }
-
-  .framework,
-  .vite {
-    position: absolute;
-  }
-
-  .framework {
-    z-index: 1;
-    top: 34px;
-    height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
-  }
-
-  .vite {
-    z-index: 0;
-    top: 107px;
-    height: 26px;
-    width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
-  }
+* {
+  box-sizing: border-box;
 }
 
-#center {
+html, body, #root {
+  margin: 0 !important;
+  padding: 0 !important;
+  height: 100vh !important;
+  width: 100vw !important;
+  overflow: hidden; 
+}
+
+.auth-split-wrapper {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+}
+
+/* 3. LEFT SIDE (The Form) */
+.auth-split-left {
+  flex: 1;
+  background-color: #fdfaf7;
   display: flex;
   flex-direction: column;
-  gap: 25px;
-  place-content: center;
-  place-items: center;
-  flex-grow: 1;
-
-  @media (max-width: 1024px) {
-    padding: 32px 20px 24px;
-    gap: 18px;
-  }
-}
-
-#next-steps {
-  display: flex;
-  border-top: 1px solid var(--border);
-  text-align: left;
-
-  & > div {
-    flex: 1 1 0;
-    padding: 32px;
-    @media (max-width: 1024px) {
-      padding: 24px 20px;
-    }
-  }
-
-  .icon {
-    margin-bottom: 16px;
-    width: 22px;
-    height: 22px;
-  }
-
-  @media (max-width: 1024px) {
-    flex-direction: column;
-    text-align: center;
-  }
-}
-
-#docs {
-  border-right: 1px solid var(--border);
-
-  @media (max-width: 1024px) {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
-}
-
-#next-steps ul {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  gap: 8px;
-  margin: 32px 0 0;
-
-  .logo {
-    height: 18px;
-  }
-
-  a {
-    color: var(--text-h);
-    font-size: 16px;
-    border-radius: 6px;
-    background: var(--social-bg);
-    display: flex;
-    padding: 6px 12px;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    transition: box-shadow 0.3s;
-
-    &:hover {
-      box-shadow: var(--shadow);
-    }
-    .button-icon {
-      height: 18px;
-      width: 18px;
-    }
-  }
-
-  @media (max-width: 1024px) {
-    margin-top: 20px;
-    flex-wrap: wrap;
-    justify-content: center;
-
-    li {
-      flex: 1 1 calc(50% - 8px);
-    }
-
-    a {
-      width: 100%;
-      justify-content: center;
-      box-sizing: border-box;
-    }
-  }
-}
-
-#spacer {
-  height: 88px;
-  border-top: 1px solid var(--border);
-  @media (max-width: 1024px) {
-    height: 48px;
-  }
-}
-
-.ticks {
+  justify-content: center; 
+  align-items: center;    
+  padding: 2rem;
   position: relative;
+  z-index: 2;
+  clip-path: polygon(
+    0% 0%, 95% 0%, 100% 10%, 95% 5%, 100% 15%, 95% 20%, 100% 25%, 95% 23%, 100% 35%, 95% 40%, 100% 45%, 95% 55%, 
+    100% 50%, 95% 60%, 100% 65%, 95% 65%, 100% 75%, 95% 75%, 100% 80%, 95% 96%, 100% 90%, 95% 100%, 0% 100%
+  );
+  margin-right: -5vw;
+}
+
+/* 4. RIGHT SIDE (The Image) */
+.auth-split-right {
+  flex: 2.0;
+  height: 100%;
+  background: url('https://png.pngtree.com/background/20240302/original/pngtree-male-doctor-writing-prescription-in-hospital-pen-prescription-medicine-sitting-photo-picture-image_7913602.jpg') no-repeat center center;
+  background-size: cover;
+  position: relative;
+}
+
+.auth-image-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(201, 99, 106, 0.9) 0%, rgba(61, 48, 40, 0.5) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: right;
+  padding: 10%;
+  color: white;
+}
+
+
+/* 5. THE FORM CONTAINER (The "Actual" Content) */
+.auth-form-container {
   width: 100%;
+  max-width: 320px;       /* Slimmer for laptops */
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;            /* Controlled spacing between elements */
+}
 
-  &::before,
-  &::after {
-    content: '';
-    position: absolute;
-    top: -4.5px;
-    border: 5px solid transparent;
-  }
+.auth-brand {
+  margin-bottom: 0.5rem !important;
+  text-align: center;
+}
 
-  &::before {
-    left: 0;
-    border-left-color: var(--border);
-  }
-  &::after {
-    right: 0;
-    border-right-color: var(--border);
+.auth-logo {
+  font-size: 1.5rem !important; /* Smaller logo for laptops */
+  margin: 0;
+}
+
+/* Tighten the Bootstrap classes directly */
+.mb-3, .mb-4 {
+  margin-bottom: 0.5rem !important; 
+}
+
+.auth-input {
+  height: 38px !important;    /* Fixed height so it doesn't stretch */
+  padding: 0.5rem !important;
+  font-size: 0.9rem !important;
+  background-color: #fff !important;
+}
+
+.auth-btn {
+  margin-top: 0.5rem;
+  padding: 0.6rem !important;
+}
+
+/* ─── FINAL TOUCH: SCALE FOR SMALL SCREENS ─── */
+@media (max-height: 750px) {
+  .auth-form-container {
+    transform: scale(0.82); /* If the screen is short, shrink the whole thing 10% */
+    transform-origin: center;
   }
 }
