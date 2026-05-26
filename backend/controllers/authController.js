@@ -127,6 +127,7 @@ const login = async (req, res) => {
       user: {
         id: profile.id,
         full_name: profile.full_name,
+        email: authData.user.email, 
         phone: profile.phone,
         role: profile.role,
       },

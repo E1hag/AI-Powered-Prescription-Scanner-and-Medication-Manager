@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import morgan from "morgan";
 import authRoutes from "./routes/authRoutes.js";
+import clinicianRoutes from "./routes/clinicianRoutes.js";
 
 dotenv.config();
 
@@ -10,24 +11,18 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-// HTTP Request Logger 
-// Shows every request in terminal: method, route, status, time
 app.use(morgan("dev"));
 
-//  Routes 
+// ─── Routes ──────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
+app.use("/api/clinician", clinicianRoutes);
 
-// Health Check 
+// ─── Health Check ─────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({ message: "MEDCO Backend is running" });
 });
 
-app.get("/api/test", (req, res) => {
-  res.json({ success: true, message: "API works fine" });
-});
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
