@@ -1,98 +1,125 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+
+function WelcomeAction({
+  label,
+  tone,
+  onPress,
+}: {
+  label: string;
+  tone: 'primary' | 'secondary';
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.actionButton, tone === 'primary' ? styles.primaryAction : styles.secondaryAction]}>
+      <ThemedText
+        type="defaultSemiBold"
+        style={[styles.actionText, tone === 'primary' ? styles.primaryActionText : null]}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
+}
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  function openNextScreen() {
+    router.push('/prescriptions/new');
+  }
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
+  return (
+    <ThemedView style={styles.container}>
+      <View style={styles.content}>
+        <ThemedText style={styles.eyebrow}>Hello</ThemedText>
+        <ThemedText style={styles.brand}>MEDCO</ThemedText>
+        <ThemedText type="title" style={styles.title}>
+          Welcome to your prescription companion.
         </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
+        <ThemedText style={styles.body}>
+          Review medications, understand schedules, and move through the prescription flow with
+          confidence.
         </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+
+        <View style={styles.actions}>
+          <WelcomeAction label="Register" tone="primary" onPress={openNextScreen} />
+          <WelcomeAction label="Login" tone="secondary" onPress={openNextScreen} />
+        </View>
+
+        <ThemedText style={styles.footnote}>
+          For now, both buttons continue into the app flow while the full account system is being
+          completed.
+        </ThemedText>
+      </View>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 32,
+    backgroundColor: '#151718',
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  content: {
+    gap: 14,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  eyebrow: {
+    fontSize: 13,
+    letterSpacing: 1.6,
+    textTransform: 'uppercase',
+    opacity: 0.72,
+  },
+  brand: {
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: 3.4,
+    color: '#7CC896',
+  },
+  title: {
+    fontSize: 34,
+    lineHeight: 44,
+  },
+  body: {
+    fontSize: 18,
+    lineHeight: 30,
+    opacity: 0.84,
+    maxWidth: 340,
+  },
+  actions: {
+    gap: 12,
+    marginTop: 18,
+  },
+  actionButton: {
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+  },
+  primaryAction: {
+    backgroundColor: '#4A9667',
+  },
+  secondaryAction: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(124, 200, 150, 0.14)',
+  },
+  actionText: {
+    textAlign: 'center',
+    fontSize: 18,
+  },
+  primaryActionText: {
+    color: '#FFFFFF',
+  },
+  footnote: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 20,
+    opacity: 0.56,
+    maxWidth: 340,
   },
 });

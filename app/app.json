@@ -28,6 +28,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow access to your prescription images so the app can upload and analyze them.",
+          "cameraPermission": "Allow camera access so you can capture a prescription for analysis."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",

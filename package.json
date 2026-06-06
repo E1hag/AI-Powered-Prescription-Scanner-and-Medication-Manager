@@ -1,0 +1,12 @@
+{
+  "name": "ai-powered-prescription-scanner-and-medication-manager",
+  "private": true,
+  "workspaces": [
+    "app",
+    "packages/*"
+  ],
+  "scripts": {
+    "lint:app": "npm --workspace app run lint",
+    "ocr:enable-live": "zsh scripts/enable-live-ocr.sh"
+  }
+}
