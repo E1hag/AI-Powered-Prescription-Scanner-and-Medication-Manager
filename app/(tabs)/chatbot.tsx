@@ -128,7 +128,7 @@ export default function ChatbotScreen() {
       lowerQuestion.includes("notification") ||
       lowerQuestion.includes("alarm")
     ) {
-      return "In MEDCO, medication reminders are connected to your prescription schedule. When a dose time arrives, you will receive a reminder. You can then mark the dose as Taken, Missed, or Snooze it for later.";
+      return "In MEDCO, medication reminders are connected to the prescription schedule. When it is time for a dose, the user can mark it as Taken, Missed, or Snoozed.";
     }
 
     if (
@@ -136,38 +136,24 @@ export default function ChatbotScreen() {
       lowerQuestion.includes("prescription") ||
       lowerQuestion.includes("ocr")
     ) {
-      return "The prescription scanning feature extracts medication names, dosages, and timing from prescription images using OCR technology. Always verify the extracted information before use.";
+      return "The prescription scanning feature is designed to extract medication names, dosage, and timing from prescription images. The user should always review the extracted information before saving it.";
     }
 
     if (
       lowerQuestion.includes("safe") ||
       lowerQuestion.includes("safety") ||
       lowerQuestion.includes("interaction") ||
-      lowerQuestion.includes("together")
+      lowerQuestion.includes("together") ||
+      lowerQuestion.includes("drug")
     ) {
-      return "Taking multiple medications together can sometimes cause interactions. MEDCO can flag potential conflicts based on your medication list. Always consult your doctor or pharmacist before combining medications.";
-    }
-
-    if (
-      lowerQuestion.includes("allergy") ||
-      lowerQuestion.includes("allergic")
-    ) {
-      return "If you have a known medication allergy, always inform your doctor and pharmacist. Symptoms of an allergic reaction may include rash, swelling, difficulty breathing, or dizziness. Seek emergency help immediately if this occurs.";
+      return "Some medications may interact with each other. MEDCO can provide general safety guidance, but users should always confirm medication safety with a doctor or pharmacist.";
     }
 
     if (lowerQuestion.includes("how") && lowerQuestion.includes("medco")) {
-      return "To use MEDCO: scan your prescription using the Scan tab, review your medication schedule in the Adherence tab, mark doses as Taken or Missed, and ask this chatbot for general medication guidance. Sign in to save your data to the cloud.";
+      return "To use MEDCO, the user can scan a prescription, review the medication schedule, track doses as Taken or Missed, check adherence progress, and ask the chatbot general medication questions.";
     }
 
-    if (
-      lowerQuestion.includes("drug") ||
-      lowerQuestion.includes("check") ||
-      lowerQuestion.includes("combination")
-    ) {
-      return "To check drug safety, consult your pharmacist or doctor with your full medication list. MEDCO provides general guidance but does not replace a clinical drug interaction check by a healthcare professional.";
-    }
-
-    return "I can only help with general medication questions. Try asking about missed doses, taking medicine with food, antibiotics, side effects, reminders, prescription scanning, or medication safety. For other questions, please consult a healthcare professional.";
+    return "I can only help with general medication questions. Try asking about missed doses, medicine after food, antibiotics, side effects, reminders, prescription scanning, or drug safety.";
   };
 
   const sendMessage = (customQuestion?: string) => {
@@ -218,12 +204,17 @@ export default function ChatbotScreen() {
 
       <View style={styles.disclaimerBox}>
         <Text style={styles.disclaimerText}>
-          ⚠️ This assistant gives general information only. For personal medical
-          advice, contact a doctor or pharmacist.
+          ⚠️ This assistant provides general medication guidance and is not a
+          substitute for professional medical advice.
         </Text>
       </View>
 
-      <View style={styles.quickQuestionRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.quickScroll}
+        contentContainerStyle={styles.quickContent}
+      >
         {quickQuestions.map((item) => (
           <TouchableOpacity
             key={item.id}
@@ -233,11 +224,12 @@ export default function ChatbotScreen() {
             <Text style={styles.quickQuestionText}>{item.label}</Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       <ScrollView
         ref={scrollViewRef}
         style={styles.chatContainer}
+        showsVerticalScrollIndicator={false}
         onContentSizeChange={() =>
           scrollViewRef.current?.scrollToEnd({ animated: true })
         }
@@ -293,14 +285,14 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: "#f8fafc",
-    padding: 18,
+    paddingHorizontal: 18,
+    paddingTop: 58,
   },
   header: {
-    marginTop: 10,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   title: {
-    fontSize: 26,
+    fontSize: 28,
     fontWeight: "bold",
     color: "#0f172a",
   },
@@ -312,55 +304,59 @@ const styles = StyleSheet.create({
   },
   disclaimerBox: {
     backgroundColor: "#fef3c7",
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 16,
+    padding: 14,
     marginBottom: 14,
   },
   disclaimerText: {
-    fontSize: 13,
+    fontSize: 14,
     color: "#92400e",
-    lineHeight: 19,
+    lineHeight: 20,
   },
-  quickQuestionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+  quickScroll: {
+    maxHeight: 46,
     marginBottom: 14,
+  },
+  quickContent: {
+    gap: 8,
+    paddingRight: 10,
   },
   quickQuestionButton: {
     backgroundColor: "#dbeafe",
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
     borderRadius: 999,
+    alignSelf: "flex-start",
   },
   quickQuestionText: {
-    color: "#1d4ed8",
-    fontWeight: "bold",
-    fontSize: 12,
+    color: "#2563eb",
+    fontWeight: "700",
+    fontSize: 13,
   },
   chatContainer: {
     flex: 1,
     marginBottom: 12,
   },
   messageBubble: {
-    maxWidth: "85%",
-    padding: 13,
-    borderRadius: 16,
+    maxWidth: "86%",
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    borderRadius: 18,
     marginBottom: 10,
   },
   botBubble: {
     backgroundColor: "#ffffff",
     alignSelf: "flex-start",
-    borderTopLeftRadius: 4,
+    borderTopLeftRadius: 5,
   },
   userBubble: {
     backgroundColor: "#2563eb",
     alignSelf: "flex-end",
-    borderTopRightRadius: 4,
+    borderTopRightRadius: 5,
   },
   messageText: {
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 22,
   },
   botMessageText: {
     color: "#0f172a",
@@ -373,7 +369,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     gap: 8,
     backgroundColor: "#ffffff",
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 8,
     shadowColor: "#000",
     shadowOpacity: 0.05,
@@ -383,21 +379,22 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     minHeight: 44,
-    maxHeight: 100,
+    maxHeight: 95,
     fontSize: 15,
     color: "#0f172a",
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 10,
   },
   sendButton: {
     backgroundColor: "#2563eb",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
+    borderRadius: 15,
   },
   sendButtonText: {
     color: "#ffffff",
     fontWeight: "bold",
+    fontSize: 15,
   },
   clearButton: {
     alignSelf: "center",
@@ -407,5 +404,6 @@ const styles = StyleSheet.create({
   clearButtonText: {
     color: "#64748b",
     fontWeight: "600",
+    fontSize: 14,
   },
 });

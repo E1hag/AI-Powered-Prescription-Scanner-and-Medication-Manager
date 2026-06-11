@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -79,11 +79,7 @@ export default function AdherenceScreen() {
   const [syncStatus, setSyncStatus] = useState("");
   const [usingTeamData, setUsingTeamData] = useState(false);
 
-  useEffect(() => {
-    initScreen();
-  }, []);
-
-  const initScreen = async () => {
+  const initScreen = useCallback(async () => {
     try {
       const {
         data: { session },
@@ -99,7 +95,11 @@ export default function AdherenceScreen() {
     } finally {
       setIsLoaded(true);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    initScreen();
+  }, [initScreen]);
 
   const loadMedicationSchedules = async (uid: string) => {
     try {
@@ -327,7 +327,7 @@ export default function AdherenceScreen() {
 
   const decidedCount = takenCount + missedCount;
   const adherenceDisplay =
-    decidedCount === 0
+    decidedCount === 0 || takenCount === 0
       ? "--"
       : Math.round((takenCount / decidedCount) * 100) + "%";
 
@@ -358,7 +358,7 @@ export default function AdherenceScreen() {
       </View>
 
       <Text style={styles.pageSubtitle}>
-        Track today&apos;s medication doses and view your adherence history.
+        {"Track today's medication doses and view your adherence history."}
       </Text>
 
       {userId ? (
@@ -408,7 +408,7 @@ export default function AdherenceScreen() {
       </View>
 
       <View style={styles.adherenceBox}>
-        <Text style={styles.adherenceTitle}>Today&apos;s Adherence</Text>
+        <Text style={styles.adherenceTitle}>{"Today's Adherence"}</Text>
         <Text style={styles.adherencePercentage}>{adherenceDisplay}</Text>
         <Text style={styles.adherenceNote}>{getTodaySummaryMessage()}</Text>
       </View>
@@ -453,7 +453,7 @@ export default function AdherenceScreen() {
         </Text>
       </View>
 
-      <Text style={styles.sectionTitle}>Today&apos;s Medication Schedule</Text>
+      <Text style={styles.sectionTitle}>{"Today's Medication Schedule"}</Text>
 
       {schedules.map((schedule) => {
         const locked = isDoseLocked(schedule.status);
