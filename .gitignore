@@ -7,42 +7,44 @@ dist/
 web-build/
 
 # Native build folders
-ios/
-android/
+ios/build/
+android/build/
 
-# Environment variables
+# Environment variables - DO NOT COMMIT SECRETS
 .env
-.env.local
-.env.development
-.env.production
-.env*.local
+.env.*
+!.env.example
+
+# macOS
+.DS_Store
 
 # Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# macOS
-.DS_Store
+# Metro / React Native
+.metro-health-check*
+.expo-shared/
 
 # TypeScript
 *.tsbuildinfo
 
-# Metro
-.metro-cache/
+# Xcode
+ios/Pods/
+ios/DerivedData/
+ios/*.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
 
 # Temporary files
-*.tmp
-*.log
-
-# IDE
-.vscode/settings.json
-.idea/
-
-# Supabase local generated files
-supabase/.branches
-supabase/.temp
-
-# Build output
-build/
+tmp/
+temp/
+.cache/

@@ -4,15 +4,24 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+const FALLBACK_SUPABASE_URL = "https://example.supabase.co";
+const FALLBACK_SUPABASE_ANON_KEY = "temporary-placeholder-key";
+
+export const isSupabaseConfigured =
+  typeof SUPABASE_URL === "string" &&
+  SUPABASE_URL.startsWith("https://") &&
+  typeof SUPABASE_ANON_KEY === "string" &&
+  SUPABASE_ANON_KEY.length > 20;
+
+if (!isSupabaseConfigured) {
   console.warn(
-    "Missing Supabase environment variables. Please check your .env file.",
+    "Supabase is not configured correctly. Please check EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your root .env file.",
   );
 }
 
 export const supabase = createClient(
-  SUPABASE_URL || "",
-  SUPABASE_ANON_KEY || "",
+  isSupabaseConfigured ? SUPABASE_URL! : FALLBACK_SUPABASE_URL,
+  isSupabaseConfigured ? SUPABASE_ANON_KEY! : FALLBACK_SUPABASE_ANON_KEY,
   {
     auth: {
       storage: AsyncStorage,
@@ -22,7 +31,3 @@ export const supabase = createClient(
     },
   },
 );
-
-export function isSupabaseConfigured() {
-  return Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
-}
