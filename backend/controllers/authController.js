@@ -60,6 +60,7 @@ const register = async (req, res) => {
       full_name,
       phone: phone || null,
       role: "clinician",
+      email: email, 
     });
 
     if (profileError) {

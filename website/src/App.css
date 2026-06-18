@@ -14,7 +14,9 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0 !important;
   padding: 0 !important;
   height: 100vh !important;
@@ -23,6 +25,7 @@ html, body, #root {
 }
 
 /* ─── AUTH PAGES ─────────────────────────────────────── */
+
 .auth-split-wrapper {
   display: flex;
   width: 100%;
@@ -47,9 +50,10 @@ html, body, #root {
 }
 
 .auth-split-right {
-  flex: 2.0;
+  flex: 2;
   height: 100%;
-  background: url('https://png.pngtree.com/background/20240302/original/pngtree-male-doctor-writing-prescription-in-hospital-pen-prescription-medicine-sitting-photo-picture-image_7913602.jpg') no-repeat center center;
+  background: url("https://png.pngtree.com/background/20240302/original/pngtree-male-doctor-writing-prescription-in-hospital-pen-prescription-medicine-sitting-photo-picture-image_7913602.jpg")
+    no-repeat center center;
   background-size: cover;
   position: relative;
 }
@@ -57,7 +61,11 @@ html, body, #root {
 .auth-image-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgba(201, 99, 106, 0.9) 0%, rgba(61, 48, 40, 0.5) 100%);
+  background: linear-gradient(
+    135deg,
+    rgba(201, 99, 106, 0.9) 0%,
+    rgba(61, 48, 40, 0.5) 100%
+  );
   display: flex;
   align-items: center;
   justify-content: right;
@@ -103,7 +111,8 @@ html, body, #root {
   text-decoration: underline;
 }
 
-.mb-3, .mb-4 {
+.mb-3,
+.mb-4 {
   margin-bottom: 0.5rem !important;
 }
 
@@ -145,9 +154,8 @@ html, body, #root {
   }
 }
 
-/* ─── DASHBOARD LAYOUT ───────────────────────────────── */
+/* ─── APP LAYOUT ─────────────────────────────────────── */
 
-/* Reset overflow for dashboard pages only */
 .layout-wrapper,
 .layout-wrapper * {
   box-sizing: border-box;
@@ -155,26 +163,22 @@ html, body, #root {
 
 .layout-wrapper {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
-  height: auto;
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* Override the global overflow hidden for dashboard */
-body:has(.layout-wrapper) {
-  overflow: auto !important;
-  height: auto !important;
-}
-
+body:has(.layout-wrapper),
 html:has(.layout-wrapper) {
-  overflow: auto !important;
-  height: auto !important;
+  overflow: hidden !important;
+  height: 100vh !important;
 }
 
 /* ─── SIDEBAR ────────────────────────────────────────── */
+
 .sidebar {
   width: 240px;
-  min-height: 100vh;
+  height: 100vh;
   background: white;
   border-right: 1px solid #f0e6e6;
   display: flex;
@@ -186,7 +190,7 @@ html:has(.layout-wrapper) {
 }
 
 .sidebar-brand {
-  padding: 1.5rem 1.5rem 1.2rem;
+  padding: 1.2rem 1.5rem 1rem;
   border-bottom: 1px solid #f0e6e6;
 }
 
@@ -195,7 +199,7 @@ html:has(.layout-wrapper) {
   font-weight: 700;
   letter-spacing: 2px;
   margin-bottom: 0.1rem;
-  font-size: 1.3rem;
+  font-size: 1.25rem;
 }
 
 .sidebar-brand span {
@@ -205,7 +209,7 @@ html:has(.layout-wrapper) {
 
 .sidebar-nav {
   list-style: none;
-  padding: 1rem 0;
+  padding: 0.8rem 0;
   margin: 0;
   flex: 1;
 }
@@ -214,10 +218,10 @@ html:has(.layout-wrapper) {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.72rem 1.5rem;
+  padding: 0.68rem 1.5rem;
   color: #666;
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.86rem;
   font-family: "Segoe UI", sans-serif;
   transition: all 0.2s;
 }
@@ -239,7 +243,7 @@ html:has(.layout-wrapper) {
 }
 
 .sidebar-logout {
-  padding: 1rem 1.5rem;
+  padding: 0.9rem 1.5rem;
   border-top: 1px solid #f0e6e6;
 }
 
@@ -261,26 +265,29 @@ html:has(.layout-wrapper) {
 }
 
 /* ─── MAIN CONTENT ───────────────────────────────────── */
+
 .main-content {
   margin-left: 240px;
-  min-height: 100vh;
+  height: 100vh;
   background-color: #f7f2f2;
   display: flex;
   flex-direction: column;
   width: calc(100% - 240px);
+  overflow: hidden;
 }
 
 /* ─── TOPBAR ─────────────────────────────────────────── */
+
 .topbar {
   background: white;
   border-bottom: 1px solid #f0e6e6;
-  padding: 0.9rem 2rem;
+  padding: 0.75rem 2rem;
+  min-height: 58px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  position: sticky;
-  top: 0;
   z-index: 100;
+  flex-shrink: 0;
 }
 
 .topbar-welcome {
@@ -316,7 +323,7 @@ html:has(.layout-wrapper) {
   border: 1px solid #f0e6e6;
   border-radius: 8px;
   min-width: 140px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   z-index: 300;
 }
 
@@ -339,139 +346,253 @@ html:has(.layout-wrapper) {
   color: var(--blush-500);
 }
 
+.topbar-user-trigger {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.topbar-user-trigger:hover {
+  background: #fff5f5;
+}
+
 /* ─── PAGE BODY ──────────────────────────────────────── */
+
 .page-body {
-  padding: 2rem;
   flex: 1;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.05rem 1.5rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.page-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.page-body::-webkit-scrollbar-track {
+  background: #f7f2f2;
+}
+
+.page-body::-webkit-scrollbar-thumb {
+  background: #d8a5a8;
+  border-radius: 10px;
+}
+
+.page-body::-webkit-scrollbar-thumb:hover {
+  background: var(--blush-500);
 }
 
 .page-header {
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
+  text-align: center;
 }
 
 .page-header h4 {
+  font-size: 1.85rem;
   font-weight: 700;
-  color: #2b2b2b;
-  margin-bottom: 0.2rem;
+  color: #1f2933;
+  margin-bottom: 0.25rem;
   font-family: "Segoe UI", sans-serif;
 }
 
 .page-header p {
   color: #888;
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   margin: 0;
 }
 
 /* ─── STAT CARDS ─────────────────────────────────────── */
+
 .stat-card {
   background: white;
   border-radius: 14px;
-  padding: 1.4rem;
+  padding: 1rem;
+  min-height: 128px;
   border: 1px solid #f0e6e6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .stat-icon {
-  width: 48px;
-  height: 48px;
+  width: 42px;
+  height: 42px;
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
-  margin-bottom: 1rem;
+  font-size: 1.15rem;
+  margin-bottom: 0.6rem;
 }
 
-.stat-icon.pink   { background: #fde8e8; color: var(--blush-500); }
-.stat-icon.yellow { background: #fef3cd; color: #d4a017; }
-.stat-icon.red    { background: #fde8e8; color: #e53935; }
-.stat-icon.green  { background: #e8f5e9; color: #43a047; }
+.stat-icon.pink {
+  background: #fde8e8;
+  color: var(--blush-500);
+}
+
+.stat-icon.yellow {
+  background: #fef3cd;
+  color: #d4a017;
+}
+
+.stat-icon.red {
+  background: #fde8e8;
+  color: #e53935;
+}
+
+.stat-icon.green {
+  background: #e8f5e9;
+  color: #43a047;
+}
 
 .stat-value {
-  font-size: 1.8rem;
+  font-size: 1.65rem;
   font-weight: 700;
   color: #2b2b2b;
   line-height: 1;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.25rem;
   font-family: "Segoe UI", sans-serif;
 }
 
 .stat-label {
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   color: #888;
   font-family: "Segoe UI", sans-serif;
 }
 
+.stat-card .stat-value {
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* ─── MEDCO CARD ─────────────────────────────────────── */
+
 .medco-card {
   background: white;
   border-radius: 14px;
   border: 1px solid #f0e6e6;
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
+  padding: 1.15rem;
+  margin-bottom: 2rem;
 }
 
 .medco-card-title {
   font-size: 1rem;
   font-weight: 600;
   color: #2b2b2b;
-  margin-bottom: 1rem;
+  margin-bottom: 0.8rem;
   font-family: "Segoe UI", sans-serif;
 }
 
 /* ─── TABLE ──────────────────────────────────────────── */
+
+.medco-table {
+  margin-bottom: 0;
+}
+
 .medco-table thead th {
   font-size: 0.8rem;
   color: #888;
   font-weight: 600;
   border-bottom: 1px solid #f0e6e6;
-  padding: 0.6rem 0.8rem;
+  padding: 0.5rem 0.7rem;
   font-family: "Segoe UI", sans-serif;
+  vertical-align: middle;
+  text-align: center;
 }
 
 .medco-table tbody td {
   font-size: 0.875rem;
-  padding: 0.85rem 0.8rem;
+  padding: 0.65rem 0.7rem;
   vertical-align: middle;
   border-bottom: 1px solid #f9f4f4;
   font-family: "Segoe UI", sans-serif;
+  text-align: center;
 }
 
 /* ─── ADHERENCE BAR ──────────────────────────────────── */
+
 .adherence-bar-wrapper {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: center;
+  gap: 0.65rem;
+  min-height: 24px;
+  width: 100%;
 }
 
 .adherence-bar {
-  height: 8px;
-  border-radius: 4px;
-  width: 80px;
-  min-width: 80px;
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0;
+  display: block;
+  margin-left: 45px;
 }
 
 .adherence-pct {
-  font-size: 0.8rem;
+  width: 38px;
+  min-width: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  line-height: 1;
+  font-size: 0.85rem;
   color: #555;
   white-space: nowrap;
+  margin: 0;
+  
+}
+
+.progress {
+  margin-bottom: 0;
+  height: 10px;
+  border-radius: 999px;
 }
 
 /* ─── STATUS BADGES ──────────────────────────────────── */
+
 .badge-status {
-  padding: 0.25rem 0.7rem 0.35rem;
+  min-width: 74px;
+  padding: 0.28rem 0.75rem;
   border-radius: 20px;
   font-size: 0.75rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
 }
 
-.badge-status.active   { background: #1976d2; color: white; }
-.badge-status.warning  { background: #f59e0b; color: white; }
-.badge-status.critical { background: #e53935; color: white; }
+.badge-status.active {
+  background: #1976d2;
+  color: white;
+}
+
+.badge-status.warning {
+  background: #f59e0b;
+  color: white;
+}
+
+.badge-status.critical {
+  background: #e53935;
+  color: white;
+}
 
 /* ─── BUTTONS ────────────────────────────────────────── */
+
 .btn-view {
   background: #fde8e8;
   color: var(--blush-600);
@@ -479,7 +600,7 @@ html:has(.layout-wrapper) {
   border-radius: 8px;
   font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.3rem 0.9rem;
+  padding: 0.32rem 0.9rem;
   transition: background 0.2s;
 }
 
@@ -511,43 +632,259 @@ html:has(.layout-wrapper) {
 }
 
 /* ─── FORM CONTROLS ──────────────────────────────────── */
+
+.form-control {
+  padding: 0.58rem 0.75rem;
+  font-size: 0.92rem;
+}
+
+textarea.form-control {
+  min-height: 105px;
+  max-height: 115px;
+  resize: none;
+}
+
 .form-control:focus {
   border-color: var(--blush-200);
   box-shadow: 0 0 0 0.2rem rgba(201, 99, 106, 0.15);
 }
 
 .form-label {
-  font-size: 0.875rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #444;
   font-family: "Segoe UI", sans-serif;
 }
 
-.topbar-user-trigger {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  padding: 0.4rem 0.8rem;
-  border-radius: 8px;
-  transition: background 0.2s;
+.form-select {
+  padding: 0.58rem 0.75rem;
+  font-size: 0.92rem;
 }
 
-.topbar-user-trigger:hover {
-  background: #fff5f5;
+.form-select:focus {
+  border-color: var(--blush-200);
+  box-shadow: 0 0 0 0.2rem rgba(201, 99, 106, 0.15);
 }
+
+/* ─── HOW IT WORKS ───────────────────────────────────── */
 
 .how-it-works {
   background: #fff5f5;
   border-radius: 10px;
-  padding: 1rem;
+  padding: 0.8rem;
   text-align: left;
+  font-size: 0.85rem;
 }
+
+/* ─── BADGE COUNT ────────────────────────────────────── */
 
 .badge-count {
   background: #6d6c6c;
   color: white;
   font-size: 0.75rem;
-  padding:  0.1rem 0.6rem 0.2rem 0.5rem;
-  border-radius: 5px;
-  font-weight: 400;  
+  padding: 0.18rem 0.65rem;
+  border-radius: 6px;
+  font-weight: 500;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
+
+/* ─── PATIENT SUMMARY ────────────────────────────────── */
+
+.patient-avatar {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #fde8e8;
+  color: var(--blush-500);
+  font-size: 1.45rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.patient-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #f9f4f4;
+  font-size: 0.82rem;
+}
+
+.patient-info-label {
+  color: #888;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.patient-info-value {
+  color: #2b2b2b;
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+.badge-allergy {
+  background: #fde8e8;
+  color: #c9636a;
+  padding: 0.18rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-condition {
+  background: #e8f0fe;
+  color: #1a73e8;
+  padding: 0.18rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* ─── OVERALL ADHERENCE BAR ──────────────────────────── */
+
+.overall-adherence-bar {
+  height: 9px;
+  background: #f0e6e6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.overall-adherence-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+/* ─── INTERACTION ALERTS ─────────────────────────────── */
+
+.interaction-alert {
+  padding: 0.7rem;
+  border-radius: 8px;
+  margin-bottom: 0.65rem;
+  border-left: 4px solid;
+}
+
+.interaction-alert.high {
+  background: #fde8e8;
+  border-color: #e53935;
+}
+
+.interaction-alert.moderate {
+  background: #fef3cd;
+  border-color: #f59e0b;
+}
+
+.interaction-alert.low {
+  background: #e8f5e9;
+  border-color: #43a047;
+}
+
+.badge-severity {
+  padding: 0.18rem 0.55rem;
+  border-radius: 20px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.badge-severity.high {
+  background: #e53935;
+  color: white;
+}
+
+.badge-severity.moderate {
+  background: #f59e0b;
+  color: white;
+}
+
+.badge-severity.low {
+  background: #43a047;
+  color: white;
+}
+
+/* ─── BOTTOM NAV BUTTONS ─────────────────────────────── */
+
+.btn-nav-page {
+  background: white;
+  border: 1px solid #f0e6e6;
+  border-radius: 12px;
+  padding: 0.75rem 0.45rem;
+  font-size: 0.78rem;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.btn-nav-page:hover {
+  background: #fde8e8;
+  color: var(--blush-500);
+  border-color: var(--blush-200);
+}
+
+.btn-nav-page i {
+  font-size: 1.1rem;
+}
+
+/* ─── RESPONSIVE TWEAKS ──────────────────────────────── */
+
+@media (max-width: 1200px) {
+  .page-body {
+    padding: 0.9rem 1.1rem;
+  }
+
+  .stat-card {
+    min-height: 118px;
+  }
+
+  .medco-card {
+    padding: 1rem;
+  }
+
+  .page-header h4 {
+    font-size: 1.65rem;
+  }
+}
+
+/* ─── MED ADHERENCE ROW ──────────────────────────────── */
+.med-adherence-row {
+  padding: 0.8rem 0;
+  border-bottom: 1px solid #f9f4f4;
+}
+
+.med-adherence-row:last-child {
+  border-bottom: none;
+}
+
+/* ─── TREATMENT NOTES ────────────────────────────────── */
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.note-item {
+  padding: 0.9rem;
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+  background: #fff9f9;
+  border-left: 4px solid #c9636a;
+  border-bottom: none;
+}
+
+.note-item:last-child {
+  margin-bottom: 0;
+}
+
+.note-type-badge {
+  padding: 0.2rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+
