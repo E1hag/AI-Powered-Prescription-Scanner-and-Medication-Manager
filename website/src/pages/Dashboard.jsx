@@ -117,7 +117,7 @@ function Dashboard() {
                   <th>Patient ID</th>
                   <th>Name</th>
                   <th>Last Visit</th>
-                  <th>Adherence</th>
+                  <th style={{ textAlign: "center" }}>Adherence</th>
                   <th>Status</th>
                   <th>Action</th>
                 </tr>
@@ -127,19 +127,25 @@ function Dashboard() {
                   <tr key={p.id}>
                     <td><strong>{p.patient_code}</strong></td>
                     <td>{p.full_name}</td>
-                    <td>{p.last_visit || "—"}</td>
                     <td>
-                      <div className="adherence-bar-wrapper">
-                        <div
-                          className="adherence-bar"
-                          style={{
-                            width: `${p.adherence_pct || 0}%`,
-                            backgroundColor: getAdherenceColor(p.adherence_pct || 0),
-                          }}
-                        ></div>
-                        <span className="adherence-pct">{p.adherence_pct || 0}%</span>
-                      </div>
+                    {p.last_visit 
+                      ? new Date(p.last_visit).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric" })
+                      : "—"}
                     </td>
+                <td>
+                  <div className="d-flex align-items-center gap-2 justify-content-center" style={{ margin: "0 auto",marginRight:"-1.5em" }}>
+                    <div className="overall-adherence-bar" style={{ width: "100px", minWidth: "100px" }}>
+                      <div
+                        className="overall-adherence-fill"
+                        style={{
+                          width: `${p.adherence_pct || 0}%`,
+                          backgroundColor: getAdherenceColor(p.adherence_pct || 0),
+                        }}
+                      />
+                    </div>
+                    <span className="adherence-pct">{p.adherence_pct || 0}%</span>
+                  </div>
+                </td>
                     <td>{getStatusBadge(p.adherence_pct || 0)}</td>
                     <td>
                       <button

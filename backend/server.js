@@ -13,11 +13,15 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan("dev"));
 
-// ─── Routes ──────────────────────────────────────────────────
+// Force no caching on all API responses
+app.use((req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/clinician", clinicianRoutes);
 
-// ─── Health Check ─────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({ message: "MEDCO Backend is running" });
 });

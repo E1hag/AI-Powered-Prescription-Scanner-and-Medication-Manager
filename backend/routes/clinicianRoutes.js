@@ -1,20 +1,30 @@
 import express from "express";
-import { getDashboard, requestAccess, getRequestHistory } from "../controllers/clinicianController.js";
+import {
+  getDashboard,
+  requestAccess,
+  getRequestHistory,
+  getPatientSummary,
+  getMyPatients,
+  getAdherenceTrends,
+  addTreatmentNote,
+  getTreatmentNotes,
+  getDrugInteractions,
+} from "../controllers/clinicianController.js";
 import { verifyToken, verifyClinician } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// All clinician routes are protected
 router.use(verifyToken);
 router.use(verifyClinician);
 
-// GET  /api/clinician/dashboard
 router.get("/dashboard", getDashboard);
-
-// POST /api/clinician/request-access
 router.post("/request-access", requestAccess);
-
-// GET  /api/clinician/request-history
 router.get("/request-history", getRequestHistory);
+router.get("/my-patients", getMyPatients);
+router.get("/patient-summary/:patientId", getPatientSummary);
+router.get("/adherence/:patientId", getAdherenceTrends);
+router.post("/notes", addTreatmentNote);
+router.get("/notes/:patientId", getTreatmentNotes);
+router.get("/interactions/:patientId", getDrugInteractions);
 
 export default router;

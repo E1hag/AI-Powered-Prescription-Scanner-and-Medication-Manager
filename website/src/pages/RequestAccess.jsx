@@ -156,8 +156,8 @@ function RequestAccess() {
             </form>
 
             {/* How it works */}
-            <div className="how-it-works mt-4">
-              <div className="d-flex align-items-center gap-2 mb-2">
+            <div className="how-it-works mt-2">
+              <div className="d-flex align-items-center gap-2 mb-1">
                 <i className="bi bi-info-circle text-muted"></i>
                 <span className="fw-semibold small">How it works</span>
               </div>
