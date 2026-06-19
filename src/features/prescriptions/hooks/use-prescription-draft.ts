@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 
-import { prescriptionService } from '@/src/features/prescriptions/services/prescription-service';
+import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
 
-type ReviewDraft = Awaited<ReturnType<typeof prescriptionService.getReviewDraft>>;
+type ReviewDraft = Awaited<
+  ReturnType<typeof prescriptionService.getReviewDraft>
+>;
 
 export function usePrescriptionDraft(prescriptionId: string) {
   const [data, setData] = useState<ReviewDraft | null>(null);
@@ -18,15 +20,24 @@ export function usePrescriptionDraft(prescriptionId: string) {
     prescriptionService
       .getReviewDraft(prescriptionId)
       .then((result) => {
-        if (!isMounted) return;
+        if (!isMounted) {
+          return;
+        }
+
         setData(result);
       })
       .catch(() => {
-        if (!isMounted) return;
-        setError('Unable to load the prescription draft.');
+        if (!isMounted) {
+          return;
+        }
+
+        setError("Unable to load the prescription draft.");
       })
       .finally(() => {
-        if (!isMounted) return;
+        if (!isMounted) {
+          return;
+        }
+
         setIsLoading(false);
       });
 

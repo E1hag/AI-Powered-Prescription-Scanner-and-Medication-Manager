@@ -17,6 +17,8 @@ export type ScheduleDose = {
   frequency?: string;
   duration?: string;
   instructions?: string;
+  ingredientA?: string;
+  ingredientB?: string | null;
   time?: string;
 };
 
@@ -34,6 +36,11 @@ export type Prescription = {
   extracted_medications?: ScheduleDose[] | null;
   created_at?: string;
   updated_at?: string;
+};
+
+export type ReviewDraft = {
+  prescription: Prescription | null;
+  medications: ScheduleDose[];
 };
 
 export type CreatePrescriptionInput = {
@@ -69,6 +76,58 @@ function mapPrescriptionRow(row: any): Prescription {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function mapExtractedMedicationRow(row: any, index: number): ScheduleDose {
+  return {
+    id: String(row.id ?? `med-${index + 1}`),
+    medicationName: String(row.medication_name ?? ""),
+    dosage: String(row.dosage_text ?? row.dosage ?? ""),
+    frequency: String(row.frequency_text ?? row.frequency ?? ""),
+    duration: String(row.duration_text ?? row.duration ?? ""),
+    instructions: String(row.instruction_text ?? row.instructions ?? ""),
+    ingredientA: String(row.ingredient_a ?? ""),
+    ingredientB: row.ingredient_b ? String(row.ingredient_b) : null,
+    time: "08:00 AM",
+  };
+}
+
+function createFallbackMedications(): ScheduleDose[] {
+  return [
+    {
+      id: "1",
+      medicationName: "Amoxicillin",
+      dosage: "500mg",
+      frequency: "Twice daily",
+      duration: "7 days",
+      instructions: "Take after food",
+      ingredientA: "Amoxicillin",
+      ingredientB: null,
+      time: "08:00 AM",
+    },
+    {
+      id: "2",
+      medicationName: "MAXIGESIC",
+      dosage: "2 tabs",
+      frequency: "3 per day",
+      duration: "4 days",
+      instructions: "Take only if needed for pain or fever",
+      ingredientA: "Ibuprofen",
+      ingredientB: "Paracetamol",
+      time: "02:00 PM",
+    },
+    {
+      id: "3",
+      medicationName: "DYMISTA",
+      dosage: "2 puffs",
+      frequency: "2 per day",
+      duration: "5 days",
+      instructions: "Use as directed",
+      ingredientA: "Azelastine Hydrochloride",
+      ingredientB: "Fluticasone Propionate",
+      time: "08:00 PM",
+    },
+  ];
 }
 
 export const prescriptionService = {
@@ -149,35 +208,7 @@ export const prescriptionService = {
             image_path: null,
             status: "processed",
             extracted_text: null,
-            extracted_medications: [
-              {
-                id: "1",
-                medicationName: "Amoxicillin",
-                dosage: "500mg",
-                frequency: "Twice daily",
-                duration: "7 days",
-                instructions: "Take after food",
-                time: "08:00 AM",
-              },
-              {
-                id: "2",
-                medicationName: "Paracetamol",
-                dosage: "1000mg",
-                frequency: "As needed",
-                duration: "3 days",
-                instructions: "Take only if needed for pain or fever",
-                time: "02:00 PM",
-              },
-              {
-                id: "3",
-                medicationName: "Vitamin D",
-                dosage: "1000 IU",
-                frequency: "Once daily",
-                duration: "30 days",
-                instructions: "Take with water",
-                time: "08:00 PM",
-              },
-            ],
+            extracted_medications: createFallbackMedications(),
           } as Prescription,
           error: null,
         };
@@ -193,6 +224,48 @@ export const prescriptionService = {
       return {
         data: null,
         error,
+      };
+    }
+  },
+
+  async getReviewDraft(prescriptionId: string): Promise<ReviewDraft> {
+    try {
+      const prescriptionResult = await this.getPrescriptionById(prescriptionId);
+      const prescription = prescriptionResult.data;
+
+      const { data: medicationRows, error: medicationError } = await supabase
+        .from("extracted_medications")
+        .select("*")
+        .eq("prescription_id", prescriptionId)
+        .order("position_index", { ascending: true });
+
+      if (medicationError) {
+        console.log(
+          "Supabase get extracted medications error:",
+          medicationError.message,
+        );
+      }
+
+      const medications =
+        medicationRows && medicationRows.length > 0
+          ? medicationRows.map((row, index) =>
+              mapExtractedMedicationRow(row, index),
+            )
+          : prescription?.extracted_medications &&
+              prescription.extracted_medications.length > 0
+            ? prescription.extracted_medications
+            : createFallbackMedications();
+
+      return {
+        prescription,
+        medications,
+      };
+    } catch (error) {
+      console.log("Get review draft error:", error);
+
+      return {
+        prescription: null,
+        medications: createFallbackMedications(),
       };
     }
   },
@@ -270,24 +343,30 @@ export const prescriptionService = {
           frequency: "Twice daily",
           duration: "7 days",
           instructions: "Take after food",
+          ingredientA: "Amoxicillin",
+          ingredientB: null,
           time: "08:00 AM",
         },
         {
           id: "2",
-          medicationName: "Paracetamol",
-          dosage: "1000mg",
-          frequency: "As needed",
-          duration: "3 days",
+          medicationName: "MAXIGESIC",
+          dosage: "2 tabs",
+          frequency: "3 per day",
+          duration: "4 days",
           instructions: "Take only if needed for pain or fever",
+          ingredientA: "Ibuprofen",
+          ingredientB: "Paracetamol",
           time: "02:00 PM",
         },
         {
           id: "3",
-          medicationName: "Vitamin D",
-          dosage: "1000 IU",
-          frequency: "Once daily",
-          duration: "30 days",
-          instructions: "Take with water",
+          medicationName: "DYMISTA",
+          dosage: "2 puffs",
+          frequency: "2 per day",
+          duration: "5 days",
+          instructions: "Use as directed",
+          ingredientA: "Azelastine Hydrochloride",
+          ingredientB: "Fluticasone Propionate",
           time: "08:00 PM",
         },
       ];
@@ -295,7 +374,7 @@ export const prescriptionService = {
       return await this.updatePrescription(id, {
         status: "processed",
         extractedText:
-          "Amoxicillin 500mg twice daily after food. Paracetamol 1000mg as needed. Vitamin D 1000 IU once daily.",
+          "Amoxicillin 500mg twice daily after food. MAXIGESIC contains Ibuprofen and Paracetamol. DYMISTA contains Azelastine Hydrochloride and Fluticasone Propionate.",
         extractedMedications: mockMedications,
       });
     } catch (error) {

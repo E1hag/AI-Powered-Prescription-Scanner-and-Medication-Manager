@@ -14,6 +14,8 @@ import {
   View,
 } from "react-native";
 
+import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
+
 type MedicationConfidence = "High" | "Medium" | "Low";
 
 type MedicationResult = {
@@ -23,6 +25,8 @@ type MedicationResult = {
   frequency: string;
   duration: string;
   instructions: string;
+  ingredientA: string;
+  ingredientB: string;
   confidence: MedicationConfidence;
 };
 
@@ -34,27 +38,93 @@ const defaultMedications: MedicationResult[] = [
     frequency: "Twice daily",
     duration: "7 days",
     instructions: "Take after food",
+    ingredientA: "Amoxicillin",
+    ingredientB: "",
     confidence: "High",
   },
   {
     id: "med-2",
-    name: "Paracetamol",
-    dosage: "1000mg",
-    frequency: "As needed",
-    duration: "3 days",
+    name: "MAXIGESIC",
+    dosage: "2 tabs",
+    frequency: "3 per day",
+    duration: "4 days",
     instructions: "Take only if needed for pain or fever",
+    ingredientA: "Ibuprofen",
+    ingredientB: "Paracetamol",
     confidence: "Medium",
   },
   {
     id: "med-3",
-    name: "Vitamin D",
-    dosage: "1000 IU",
-    frequency: "Once daily",
-    duration: "30 days",
-    instructions: "Take with water",
+    name: "DYMISTA",
+    dosage: "2 puffs",
+    frequency: "2 per day",
+    duration: "5 days",
+    instructions: "Use as directed",
+    ingredientA: "Azelastine Hydrochloride",
+    ingredientB: "Fluticasone Propionate",
     confidence: "High",
   },
 ];
+
+function normalizeMedication(
+  rawMedication: any,
+  index: number,
+): MedicationResult {
+  return {
+    id: String(rawMedication?.id ?? `med-${index + 1}`),
+    name: String(
+      rawMedication?.name ??
+        rawMedication?.medicationName ??
+        rawMedication?.medication_name ??
+        "",
+    ),
+    dosage: String(
+      rawMedication?.dosage ??
+        rawMedication?.dosageText ??
+        rawMedication?.dosage_text ??
+        "",
+    ),
+    frequency: String(
+      rawMedication?.frequency ??
+        rawMedication?.frequencyText ??
+        rawMedication?.frequency_text ??
+        "",
+    ),
+    duration: String(
+      rawMedication?.duration ??
+        rawMedication?.durationText ??
+        rawMedication?.duration_text ??
+        "",
+    ),
+    instructions: String(
+      rawMedication?.instructions ??
+        rawMedication?.instruction ??
+        rawMedication?.instructionText ??
+        rawMedication?.instruction_text ??
+        "",
+    ),
+    ingredientA: String(
+      rawMedication?.ingredientA ??
+        rawMedication?.ingredient_a ??
+        rawMedication?.substanceA ??
+        rawMedication?.substance_a ??
+        "",
+    ),
+    ingredientB: String(
+      rawMedication?.ingredientB ??
+        rawMedication?.ingredient_b ??
+        rawMedication?.substanceB ??
+        rawMedication?.substance_b ??
+        "",
+    ),
+    confidence:
+      rawMedication?.confidence === "High" ||
+      rawMedication?.confidence === "Medium" ||
+      rawMedication?.confidence === "Low"
+        ? rawMedication.confidence
+        : "Medium",
+  };
+}
 
 export default function ReviewPrescriptionScreen() {
   const params = useLocalSearchParams<{
@@ -63,6 +133,14 @@ export default function ReviewPrescriptionScreen() {
     source?: string;
     medications?: string;
   }>();
+
+  const prescriptionId = useMemo(() => {
+    if (typeof params.id === "string" && params.id.trim().length > 0) {
+      return params.id;
+    }
+
+    return "new";
+  }, [params.id]);
 
   const imageUri = useMemo(() => {
     if (typeof params.imageUri === "string") {
@@ -89,7 +167,7 @@ export default function ReviewPrescriptionScreen() {
       const parsed = JSON.parse(params.medications);
 
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as MedicationResult[];
+        return parsed.map((item, index) => normalizeMedication(item, index));
       }
 
       return defaultMedications;
@@ -100,6 +178,8 @@ export default function ReviewPrescriptionScreen() {
 
   const [medications, setMedications] =
     useState<MedicationResult[]>(parsedMedications);
+
+  const [isSaving, setIsSaving] = useState(false);
 
   const updateMedicationField = (
     medicationId: string,
@@ -142,6 +222,8 @@ export default function ReviewPrescriptionScreen() {
       frequency: "",
       duration: "",
       instructions: "",
+      ingredientA: "",
+      ingredientB: "",
       confidence: "Low",
     };
 
@@ -156,14 +238,15 @@ export default function ReviewPrescriptionScreen() {
       return (
         medication.name.trim().length === 0 ||
         medication.dosage.trim().length === 0 ||
-        medication.frequency.trim().length === 0
+        medication.frequency.trim().length === 0 ||
+        medication.ingredientA.trim().length === 0
       );
     });
 
     if (hasEmptyRequiredField) {
       Alert.alert(
         "Missing Medication Details",
-        "Please make sure every medication has a name, dosage, and frequency before continuing.",
+        "Please make sure every medication has a medicine name, dosage, frequency, and Ingredient A before continuing.",
       );
 
       return false;
@@ -172,20 +255,55 @@ export default function ReviewPrescriptionScreen() {
     return true;
   };
 
-  const continueToSchedule = () => {
+  const continueToSchedule = async () => {
     if (!validateMedications()) {
       return;
     }
 
-    router.push({
-      pathname: "/prescriptions/[id]/schedule",
-      params: {
-        id: "new",
-        imageUri,
-        source,
-        medications: JSON.stringify(medications),
-      },
-    });
+    try {
+      setIsSaving(true);
+
+      const reviewedMedications = medications.map((medication) => ({
+        id: medication.id,
+        medicationName: medication.name.trim(),
+        dosage: medication.dosage.trim(),
+        frequency: medication.frequency.trim(),
+        duration: medication.duration.trim(),
+        instructions: medication.instructions.trim(),
+        ingredientA: medication.ingredientA.trim(),
+        ingredientB:
+          medication.ingredientB.trim().length > 0
+            ? medication.ingredientB.trim()
+            : null,
+        time: "08:00 AM",
+      }));
+
+      if (prescriptionId !== "new") {
+        await prescriptionService.updatePrescription(prescriptionId, {
+          status: "reviewed",
+          extractedMedications: reviewedMedications,
+        });
+      }
+
+      router.push({
+        pathname: "/prescriptions/[id]/schedule",
+        params: {
+          id: prescriptionId,
+          imageUri,
+          source,
+          medications: JSON.stringify(reviewedMedications),
+        },
+      });
+    } catch (error) {
+      console.log("Continue to schedule error:", error);
+
+      Alert.alert(
+        "Unable to Continue",
+        "Something went wrong while saving the reviewed medication details.",
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const getConfidenceStyle = (confidence: MedicationConfidence) => {
@@ -258,7 +376,8 @@ export default function ReviewPrescriptionScreen() {
 
           <Text style={styles.noticeText}>
             Review carefully. OCR results can make mistakes, especially with
-            handwriting or unclear images.
+            handwriting or unclear images. Ingredient A and Ingredient B are
+            used for drug interaction checking.
           </Text>
         </View>
 
@@ -316,7 +435,31 @@ export default function ReviewPrescriptionScreen() {
               onChangeText={(value) =>
                 updateMedicationField(medication.id, "name", value)
               }
-              placeholder="Example: Amoxicillin"
+              placeholder="Example: MAXIGESIC"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.inputLabel}>Ingredient A / Substance 1</Text>
+            <TextInput
+              style={styles.input}
+              value={medication.ingredientA}
+              onChangeText={(value) =>
+                updateMedicationField(medication.id, "ingredientA", value)
+              }
+              placeholder="Example: Ibuprofen"
+              placeholderTextColor="#94a3b8"
+            />
+
+            <Text style={styles.inputLabel}>
+              Ingredient B / Substance 2 Optional
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={medication.ingredientB}
+              onChangeText={(value) =>
+                updateMedicationField(medication.id, "ingredientB", value)
+              }
+              placeholder="Example: Paracetamol"
               placeholderTextColor="#94a3b8"
             />
 
@@ -372,10 +515,19 @@ export default function ReviewPrescriptionScreen() {
           <Text style={styles.addButtonText}>Add Another Medication</Text>
         </Pressable>
 
-        <Pressable style={styles.continueButton} onPress={continueToSchedule}>
+        <Pressable
+          style={[
+            styles.continueButton,
+            isSaving && styles.continueButtonDisabled,
+          ]}
+          onPress={continueToSchedule}
+          disabled={isSaving}
+        >
           <Ionicons name="calendar" size={19} color="#ffffff" />
           <Text style={styles.continueButtonText}>
-            Continue to Medication Schedule
+            {isSaving
+              ? "Saving Reviewed Details..."
+              : "Continue to Medication Schedule"}
           </Text>
         </Pressable>
 
@@ -626,6 +778,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 9,
     paddingHorizontal: 14,
+  },
+  continueButtonDisabled: {
+    backgroundColor: "#94a3b8",
   },
   continueButtonText: {
     fontSize: 15.5,

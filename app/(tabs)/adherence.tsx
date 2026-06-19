@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -11,216 +12,346 @@ import {
   View,
 } from "react-native";
 
-type DoseStatus = "Pending" | "Taken" | "Missed" | "Snoozed";
-
-type ScheduleDose = {
-  id: string;
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  time: string;
-  instruction: string;
-  status: DoseStatus;
-};
-
-type StoredMedicationSchedule = {
-  id: string;
-  createdAt: string;
-  doses: ScheduleDose[];
-};
-
-type AdherenceAction = {
-  id: string;
-  doseId: string;
-  medicationName: string;
-  time: string;
-  action: DoseStatus;
-  createdAt: string;
-};
+import {
+  AdherenceHistoryItem,
+  DoseStatus,
+  MedicationDose,
+  MedicationSchedule,
+  getAdherenceHistoryFromSupabase,
+  getLatestMedicationScheduleFromSupabase,
+  saveAdherenceHistoryToSupabase,
+  updateMedicationScheduleDosesInSupabase,
+} from "@/src/services/medcoSupabaseService";
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
 const MEDCO_ADHERENCE_HISTORY_KEY = "MEDCO_ADHERENCE_HISTORY";
 
-const defaultDoses: ScheduleDose[] = [
-  {
-    id: "default-dose-1",
-    medicationId: "default-med-1",
-    medicationName: "Amoxicillin",
-    dosage: "500mg",
-    time: "08:00 AM",
-    instruction: "Take after food",
-    status: "Pending",
-  },
-  {
-    id: "default-dose-2",
-    medicationId: "default-med-2",
-    medicationName: "Paracetamol",
-    dosage: "1000mg",
-    time: "02:00 PM",
-    instruction: "Take only if needed for pain or fever",
-    status: "Pending",
-  },
-  {
-    id: "default-dose-3",
-    medicationId: "default-med-3",
-    medicationName: "Vitamin D",
-    dosage: "1000 IU",
-    time: "08:00 PM",
-    instruction: "Take with water",
-    status: "Pending",
-  },
-];
+type StoredMedicationSchedule = {
+  id: string;
+  createdAt: string;
+  doses: MedicationDose[];
+};
+
+const emptySchedule: MedicationSchedule = {
+  id: "",
+  createdAt: new Date().toISOString(),
+  doses: [],
+};
 
 export default function AdherenceScreen() {
-  const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
-  const [history, setHistory] = useState<AdherenceAction[]>([]);
-  const [scheduleCreatedAt, setScheduleCreatedAt] = useState<string | null>(
-    null,
-  );
+  const [schedule, setSchedule] = useState<MedicationSchedule>(emptySchedule);
+  const [history, setHistory] = useState<AdherenceHistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUpdatingDoseId, setIsUpdatingDoseId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const loadScheduleAndHistory = async () => {
+  const cacheScheduleLocally = async (latestSchedule: MedicationSchedule) => {
+    const localSchedule: StoredMedicationSchedule = {
+      id: latestSchedule.id,
+      createdAt: latestSchedule.createdAt,
+      doses: latestSchedule.doses,
+    };
+
+    await AsyncStorage.setItem(
+      MEDCO_SCHEDULE_STORAGE_KEY,
+      JSON.stringify(localSchedule),
+    );
+  };
+
+  const cacheHistoryLocally = async (latestHistory: AdherenceHistoryItem[]) => {
+    await AsyncStorage.setItem(
+      MEDCO_ADHERENCE_HISTORY_KEY,
+      JSON.stringify(latestHistory),
+    );
+  };
+
+  const loadLocalBackup = async () => {
+    const savedScheduleRaw = await AsyncStorage.getItem(
+      MEDCO_SCHEDULE_STORAGE_KEY,
+    );
+
+    const savedHistoryRaw = await AsyncStorage.getItem(
+      MEDCO_ADHERENCE_HISTORY_KEY,
+    );
+
+    if (savedScheduleRaw) {
+      const savedSchedule = JSON.parse(
+        savedScheduleRaw,
+      ) as StoredMedicationSchedule;
+
+      if (Array.isArray(savedSchedule.doses)) {
+        setSchedule({
+          id: savedSchedule.id,
+          createdAt: savedSchedule.createdAt,
+          doses: savedSchedule.doses,
+        });
+      }
+    }
+
+    if (savedHistoryRaw) {
+      const savedHistory = JSON.parse(
+        savedHistoryRaw,
+      ) as AdherenceHistoryItem[];
+
+      if (Array.isArray(savedHistory)) {
+        setHistory(savedHistory);
+      }
+    }
+  };
+
+  const loadAdherenceData = async () => {
     try {
-      const savedScheduleRaw = await AsyncStorage.getItem(
-        MEDCO_SCHEDULE_STORAGE_KEY,
-      );
+      setIsLoading(true);
+      setLoadError(null);
 
-      if (savedScheduleRaw) {
-        const savedSchedule = JSON.parse(
-          savedScheduleRaw,
-        ) as StoredMedicationSchedule;
+      const latestSchedule = await getLatestMedicationScheduleFromSupabase();
 
-        if (Array.isArray(savedSchedule.doses)) {
-          setDoses(savedSchedule.doses);
-          setScheduleCreatedAt(savedSchedule.createdAt);
-        }
-      } else {
-        setDoses(defaultDoses);
-        setScheduleCreatedAt(null);
+      if (!latestSchedule) {
+        setSchedule(emptySchedule);
+        setHistory([]);
+        return;
       }
 
-      const savedHistoryRaw = await AsyncStorage.getItem(
-        MEDCO_ADHERENCE_HISTORY_KEY,
+      setSchedule(latestSchedule);
+      await cacheScheduleLocally(latestSchedule);
+
+      const latestHistory = await getAdherenceHistoryFromSupabase(
+        latestSchedule.id,
       );
 
-      if (savedHistoryRaw) {
-        const savedHistory = JSON.parse(savedHistoryRaw) as AdherenceAction[];
+      setHistory(latestHistory);
+      await cacheHistoryLocally(latestHistory);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to load adherence data from Supabase.";
 
-        if (Array.isArray(savedHistory)) {
-          setHistory(savedHistory);
-        }
-      } else {
+      setLoadError(message);
+
+      try {
+        await loadLocalBackup();
+      } catch {
+        setSchedule(emptySchedule);
         setHistory([]);
       }
-    } catch {
-      setDoses(defaultDoses);
-      setHistory([]);
-      setScheduleCreatedAt(null);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
-      loadScheduleAndHistory();
+      loadAdherenceData();
     }, []),
   );
 
   const stats = useMemo(() => {
-    const taken = doses.filter((dose) => dose.status === "Taken").length;
-    const missed = doses.filter((dose) => dose.status === "Missed").length;
-    const snoozed = doses.filter((dose) => dose.status === "Snoozed").length;
-    const pending = doses.filter((dose) => dose.status === "Pending").length;
+    const taken = schedule.doses.filter(
+      (dose) => dose.status === "Taken",
+    ).length;
+    const missed = schedule.doses.filter(
+      (dose) => dose.status === "Missed",
+    ).length;
+    const snoozed = schedule.doses.filter(
+      (dose) => dose.status === "Snoozed",
+    ).length;
+    const pending = schedule.doses.filter(
+      (dose) => dose.status === "Pending",
+    ).length;
 
     const completed = taken + missed;
     const adherencePercentage =
-      completed === 0 ? 0 : Math.round((taken / completed) * 100);
+      completed === 0 ? null : Math.round((taken / completed) * 100);
 
     return {
       taken,
       missed,
       snoozed,
       pending,
-      total: doses.length,
+      total: schedule.doses.length,
+      completed,
       adherencePercentage,
     };
-  }, [doses]);
+  }, [schedule.doses]);
 
-  const updateDoseStatus = async (doseId: string, newStatus: DoseStatus) => {
+  const weeklyAdherence = useMemo(() => {
+    const today = new Date();
+    const days = [];
+
+    for (let index = 6; index >= 0; index -= 1) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - index);
+
+      const dayName = date.toLocaleDateString([], {
+        weekday: "short",
+      });
+
+      const dateKey = date.toISOString().split("T")[0];
+
+      const actionsForDay = history.filter((item) => {
+        return item.createdAt.startsWith(dateKey);
+      });
+
+      const takenForDay = actionsForDay.filter(
+        (item) => item.action === "Taken",
+      ).length;
+
+      const missedForDay = actionsForDay.filter(
+        (item) => item.action === "Missed",
+      ).length;
+
+      const completedForDay = takenForDay + missedForDay;
+
+      const percentage =
+        completedForDay === 0
+          ? 0
+          : Math.round((takenForDay / completedForDay) * 100);
+
+      days.push({
+        dayName,
+        percentage,
+      });
+    }
+
+    return days;
+  }, [history]);
+
+  const updateDoseStatus = async (doseId: string, nextStatus: DoseStatus) => {
+    if (!schedule.id) {
+      Alert.alert(
+        "No Schedule Found",
+        "Please scan and save a prescription schedule first.",
+      );
+      return;
+    }
+
     try {
-      const selectedDose = doses.find((dose) => dose.id === doseId);
+      setIsUpdatingDoseId(doseId);
 
-      if (!selectedDose) {
-        Alert.alert("Dose Not Found", "Unable to update this medication dose.");
-        return;
-      }
-
-      const updatedDoses = doses.map((dose) => {
+      const updatedDoses = schedule.doses.map((dose) => {
         if (dose.id === doseId) {
           return {
             ...dose,
-            status: newStatus,
+            status: nextStatus,
           };
         }
 
         return dose;
       });
 
-      setDoses(updatedDoses);
-
-      const updatedSchedule: StoredMedicationSchedule = {
-        id: scheduleCreatedAt
-          ? `schedule-${scheduleCreatedAt}`
-          : `schedule-${Date.now()}`,
-        createdAt: scheduleCreatedAt ?? new Date().toISOString(),
-        doses: updatedDoses,
-      };
-
-      await AsyncStorage.setItem(
-        MEDCO_SCHEDULE_STORAGE_KEY,
-        JSON.stringify(updatedSchedule),
+      const updatedSchedule = await updateMedicationScheduleDosesInSupabase(
+        schedule.id,
+        updatedDoses,
       );
 
-      const newHistoryItem: AdherenceAction = {
-        id: `history-${Date.now()}`,
+      const selectedDose = updatedDoses.find((dose) => dose.id === doseId);
+
+      if (!selectedDose) {
+        throw new Error("Selected dose was not found.");
+      }
+
+      const historyItem: AdherenceHistoryItem = {
+        id: `history-${doseId}-${Date.now()}`,
         doseId: selectedDose.id,
         medicationName: selectedDose.medicationName,
         time: selectedDose.time,
-        action: newStatus,
+        action: nextStatus,
         createdAt: new Date().toISOString(),
       };
 
-      const updatedHistory = [newHistoryItem, ...history];
+      await saveAdherenceHistoryToSupabase(schedule.id, historyItem);
+
+      const updatedHistory = [historyItem, ...history];
+
+      setSchedule(updatedSchedule);
       setHistory(updatedHistory);
 
-      await AsyncStorage.setItem(
-        MEDCO_ADHERENCE_HISTORY_KEY,
-        JSON.stringify(updatedHistory),
-      );
-    } catch {
+      await cacheScheduleLocally(updatedSchedule);
+      await cacheHistoryLocally(updatedHistory);
+    } catch (error) {
       Alert.alert(
         "Update Failed",
-        "Unable to update adherence status. Please try again.",
+        error instanceof Error
+          ? error.message
+          : "Unable to update the dose status in Supabase.",
       );
+    } finally {
+      setIsUpdatingDoseId(null);
     }
   };
 
-  const clearSchedule = () => {
+  const confirmDoseAction = (dose: MedicationDose, nextStatus: DoseStatus) => {
+    const actionText =
+      nextStatus === "Taken"
+        ? "mark this dose as Taken"
+        : nextStatus === "Missed"
+          ? "mark this dose as Missed"
+          : nextStatus === "Snoozed"
+            ? "snooze this dose"
+            : "set this dose as Pending";
+
+    Alert.alert("Confirm Dose Action", `Do you want to ${actionText}?`, [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Confirm",
+        onPress: () => updateDoseStatus(dose.id, nextStatus),
+      },
+    ]);
+  };
+
+  const resetScheduleStatuses = () => {
+    if (!schedule.id) {
+      Alert.alert(
+        "No Schedule Found",
+        "Please scan and save a prescription schedule first.",
+      );
+      return;
+    }
+
     Alert.alert(
-      "Clear Schedule",
-      "This will remove the saved prescription schedule and adherence history from this device.",
+      "Reset Today's Doses",
+      "This will set all current doses back to Pending in Supabase.",
       [
         {
           text: "Cancel",
           style: "cancel",
         },
         {
-          text: "Clear",
+          text: "Reset",
           style: "destructive",
           onPress: async () => {
-            await AsyncStorage.removeItem(MEDCO_SCHEDULE_STORAGE_KEY);
-            await AsyncStorage.removeItem(MEDCO_ADHERENCE_HISTORY_KEY);
-            setDoses(defaultDoses);
-            setHistory([]);
-            setScheduleCreatedAt(null);
+            try {
+              setIsUpdatingDoseId("reset-all");
+
+              const resetDoses = schedule.doses.map((dose) => {
+                return {
+                  ...dose,
+                  status: "Pending" as DoseStatus,
+                };
+              });
+
+              const updatedSchedule =
+                await updateMedicationScheduleDosesInSupabase(
+                  schedule.id,
+                  resetDoses,
+                );
+
+              setSchedule(updatedSchedule);
+              await cacheScheduleLocally(updatedSchedule);
+            } catch (error) {
+              Alert.alert(
+                "Reset Failed",
+                error instanceof Error
+                  ? error.message
+                  : "Unable to reset the schedule in Supabase.",
+              );
+            } finally {
+              setIsUpdatingDoseId(null);
+            }
           },
         },
       ],
@@ -231,22 +362,11 @@ export default function AdherenceScreen() {
     router.push("/prescriptions/new");
   };
 
-  const formatDateTime = (isoDate: string) => {
-    try {
-      const date = new Date(isoDate);
-
-      return date.toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "Recently";
-    }
+  const goToCurrentMedications = () => {
+    router.push("/current-medications");
   };
 
-  const getStatusColor = (status: DoseStatus) => {
+  const getStatusStyle = (status: DoseStatus) => {
     if (status === "Taken") {
       return {
         badge: styles.takenBadge,
@@ -282,6 +402,17 @@ export default function AdherenceScreen() {
     };
   };
 
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563eb" />
+        <Text style={styles.loadingText}>
+          Loading Supabase adherence data...
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView
       style={styles.container}
@@ -292,215 +423,297 @@ export default function AdherenceScreen() {
         <View style={styles.headerTextBox}>
           <Text style={styles.title}>Adherence</Text>
           <Text style={styles.subtitle}>
-            Track doses, view progress, and monitor your medication history.
+            Track doses, view progress, and monitor your Supabase medication
+            history.
           </Text>
         </View>
-
-        <Pressable style={styles.signOutButton}>
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.statsGrid}>
-        <View style={[styles.statCard, styles.takenStatCard]}>
-          <Ionicons name="checkmark-circle" size={28} color="#16a34a" />
-          <Text style={[styles.statNumber, styles.takenText]}>
-            {stats.taken}
-          </Text>
-          <Text style={[styles.statLabel, styles.takenText]}>Taken</Text>
-        </View>
-
-        <View style={[styles.statCard, styles.missedStatCard]}>
-          <Ionicons name="close-circle" size={28} color="#dc2626" />
-          <Text style={[styles.statNumber, styles.missedText]}>
-            {stats.missed}
-          </Text>
-          <Text style={[styles.statLabel, styles.missedText]}>Missed</Text>
-        </View>
-
-        <View style={[styles.statCard, styles.snoozedStatCard]}>
-          <Ionicons name="time" size={28} color="#f59e0b" />
-          <Text style={[styles.statNumber, styles.snoozedText]}>
-            {stats.snoozed}
-          </Text>
-          <Text style={[styles.statLabel, styles.snoozedText]}>Snoozed</Text>
-        </View>
-
-        <View style={[styles.statCard, styles.pendingStatCard]}>
-          <Ionicons name="alarm" size={28} color="#7c3aed" />
-          <Text style={[styles.statNumber, styles.pendingText]}>
-            {stats.pending}
-          </Text>
-          <Text style={[styles.statLabel, styles.pendingText]}>Pending</Text>
-        </View>
-      </View>
-
-      <View style={styles.adherenceCard}>
-        <View style={styles.adherenceTextBox}>
-          <Text style={styles.adherenceTitle}>Today&apos;s Adherence</Text>
-          <Text style={styles.adherenceSubtitle}>
-            {stats.total === 0
-              ? "No doses recorded yet."
-              : stats.taken === 0 && stats.missed === 0
-                ? "Your day is just starting 🌅"
-                : `${stats.taken} of ${stats.taken + stats.missed} completed doses taken.`}
-          </Text>
-        </View>
-
-        <View style={styles.adherenceCircle}>
-          <Text style={styles.adherencePercent}>
-            {stats.taken === 0 && stats.missed === 0
-              ? "--"
-              : `${stats.adherencePercentage}%`}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.weeklyCard}>
-        <View style={styles.weeklyHeader}>
-          <Ionicons name="bar-chart" size={30} color="#2563eb" />
-          <View>
-            <Text style={styles.weeklyTitle}>Weekly Adherence</Text>
-            <Text style={styles.weeklySubtitle}>Last 7 days progress</Text>
-          </View>
-        </View>
-
-        <View style={styles.chartBox}>
-          {["Fri", "Sat", "Sun", "Mon", "Tue", "Wed", "Thu"].map((day) => (
-            <View key={day} style={styles.chartColumn}>
-              <View style={styles.chartBarTrack}>
-                <View
-                  style={[
-                    styles.chartBarFill,
-                    {
-                      height:
-                        stats.taken === 0 && stats.missed === 0
-                          ? 4
-                          : Math.max(stats.adherencePercentage, 8),
-                    },
-                  ]}
-                />
-              </View>
-              <Text style={styles.chartValue}>
-                {stats.taken === 0 && stats.missed === 0
-                  ? "0"
-                  : `${stats.adherencePercentage}`}
-              </Text>
-              <Text style={styles.chartDay}>{day}</Text>
-            </View>
-          ))}
-        </View>
-
-        <Text style={styles.weeklyNote}>
-          Days without recorded doses are shown as 0%.
-        </Text>
-      </View>
-
-      <View style={styles.sectionHeaderRow}>
-        <Text style={styles.sectionTitle}>
-          Today&apos;s Medication Schedule
-        </Text>
 
         <Pressable style={styles.scanButton} onPress={goToScanner}>
-          <Ionicons name="scan" size={16} color="#2563eb" />
+          <Ionicons name="scan" size={17} color="#2563eb" />
           <Text style={styles.scanButtonText}>Scan</Text>
         </Pressable>
       </View>
 
-      {doses.map((dose) => {
-        const statusStyle = getStatusColor(dose.status);
-
-        return (
-          <View key={dose.id} style={styles.doseCard}>
-            <View style={styles.doseHeader}>
-              <View style={styles.doseTextBox}>
-                <Text style={styles.doseName}>{dose.medicationName}</Text>
-                <Text style={styles.doseMeta}>
-                  {dose.dosage} • {dose.time}
-                </Text>
-                <Text style={styles.doseInstruction}>{dose.instruction}</Text>
-              </View>
-
-              <View style={[styles.statusBadge, statusStyle.badge]}>
-                <Text style={[styles.statusBadgeText, statusStyle.text]}>
-                  {dose.status}
-                </Text>
-                <Ionicons
-                  name={statusStyle.icon}
-                  size={16}
-                  color={statusStyle.iconColor}
-                />
-              </View>
-            </View>
-
-            <View style={styles.actionRow}>
-              <Pressable
-                style={[styles.actionButton, styles.takenButton]}
-                onPress={() => updateDoseStatus(dose.id, "Taken")}
-              >
-                <Text style={styles.actionButtonText}>Taken</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.actionButton, styles.missedButton]}
-                onPress={() => updateDoseStatus(dose.id, "Missed")}
-              >
-                <Text style={styles.actionButtonText}>Missed</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.actionButton, styles.snoozeButton]}
-                onPress={() => updateDoseStatus(dose.id, "Snoozed")}
-              >
-                <Text style={styles.actionButtonText}>Snooze</Text>
-              </Pressable>
-            </View>
-          </View>
-        );
-      })}
-
-      <View style={styles.historyHeaderRow}>
-        <Text style={styles.sectionTitle}>Adherence History</Text>
-
-        <Pressable style={styles.clearButton} onPress={clearSchedule}>
-          <Text style={styles.clearButtonText}>Clear</Text>
-        </Pressable>
-      </View>
-
-      {history.length === 0 ? (
-        <View style={styles.emptyHistoryCard}>
-          <Ionicons name="document-text-outline" size={34} color="#94a3b8" />
-          <Text style={styles.emptyHistoryText}>
-            No adherence actions recorded yet.
+      {loadError && (
+        <View style={styles.errorCard}>
+          <Ionicons name="warning" size={22} color="#f59e0b" />
+          <Text style={styles.errorText}>
+            Supabase load warning: {loadError}. Showing local cached data if
+            available.
           </Text>
         </View>
-      ) : (
-        history.map((item) => {
-          const statusStyle = getStatusColor(item.action);
+      )}
 
-          return (
-            <View key={item.id} style={styles.historyItem}>
-              <View style={[styles.historyIconBox, statusStyle.badge]}>
-                <Ionicons
-                  name={statusStyle.icon}
-                  size={20}
-                  color={statusStyle.iconColor}
-                />
-              </View>
+      {!schedule.id && (
+        <View style={styles.emptyScheduleCard}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="document-text" size={34} color="#2563eb" />
+          </View>
 
-              <View style={styles.historyTextBox}>
-                <Text style={styles.historyTitle}>{item.medicationName}</Text>
-                <Text style={styles.historySubtitle}>
-                  {item.action} • {item.time}
-                </Text>
-              </View>
+          <Text style={styles.emptyTitle}>No Supabase Schedule Yet</Text>
 
-              <Text style={styles.historyDate}>
-                {formatDateTime(item.createdAt)}
+          <Text style={styles.emptyText}>
+            Scan a prescription, review the extracted medicines, create a
+            schedule, and save it to Supabase.
+          </Text>
+
+          <Pressable style={styles.emptyButton} onPress={goToScanner}>
+            <Ionicons name="scan" size={20} color="#ffffff" />
+            <Text style={styles.emptyButtonText}>Scan Prescription</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {schedule.id && (
+        <>
+          <View style={styles.liveCard}>
+            <View style={styles.liveIconCircle}>
+              <Ionicons name="cloud-done" size={24} color="#2563eb" />
+            </View>
+
+            <View style={styles.liveTextBox}>
+              <Text style={styles.liveTitle}>Supabase Live Data</Text>
+              <Text style={styles.liveText}>
+                This page is reading and updating the latest saved medication
+                schedule from Supabase.
               </Text>
             </View>
-          );
-        })
+          </View>
+
+          <View style={styles.statsGrid}>
+            <View style={[styles.statCard, styles.takenStatCard]}>
+              <Ionicons name="checkmark-circle" size={26} color="#16a34a" />
+              <Text style={[styles.statNumber, styles.takenText]}>
+                {stats.taken}
+              </Text>
+              <Text style={styles.statLabel}>Taken</Text>
+            </View>
+
+            <View style={[styles.statCard, styles.missedStatCard]}>
+              <Ionicons name="close-circle" size={26} color="#dc2626" />
+              <Text style={[styles.statNumber, styles.missedText]}>
+                {stats.missed}
+              </Text>
+              <Text style={styles.statLabel}>Missed</Text>
+            </View>
+
+            <View style={[styles.statCard, styles.snoozedStatCard]}>
+              <Ionicons name="time" size={26} color="#f59e0b" />
+              <Text style={[styles.statNumber, styles.snoozedText]}>
+                {stats.snoozed}
+              </Text>
+              <Text style={styles.statLabel}>Snoozed</Text>
+            </View>
+
+            <View style={[styles.statCard, styles.pendingStatCard]}>
+              <Ionicons name="notifications" size={26} color="#7c3aed" />
+              <Text style={[styles.statNumber, styles.pendingText]}>
+                {stats.pending}
+              </Text>
+              <Text style={styles.statLabel}>Pending</Text>
+            </View>
+          </View>
+
+          <View style={styles.adherenceCard}>
+            <View style={styles.adherenceTextBox}>
+              <Text style={styles.adherenceTitle}>Today&apos;s Adherence</Text>
+
+              <Text style={styles.adherenceSubtitle}>
+                {stats.adherencePercentage === null
+                  ? "Your day is just starting 🌅"
+                  : `${stats.completed} completed dose action${
+                      stats.completed === 1 ? "" : "s"
+                    } recorded`}
+              </Text>
+            </View>
+
+            <View style={styles.adherenceCircle}>
+              <Text style={styles.adherencePercentage}>
+                {stats.adherencePercentage === null
+                  ? "--"
+                  : `${stats.adherencePercentage}%`}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.weeklyCard}>
+            <View style={styles.weeklyHeader}>
+              <Ionicons name="bar-chart" size={26} color="#2563eb" />
+              <View>
+                <Text style={styles.weeklyTitle}>Weekly Adherence</Text>
+                <Text style={styles.weeklySubtitle}>Last 7 days progress</Text>
+              </View>
+            </View>
+
+            <View style={styles.chartBox}>
+              {weeklyAdherence.map((day) => (
+                <View key={day.dayName} style={styles.chartItem}>
+                  <View style={styles.chartBarTrack}>
+                    <View
+                      style={[
+                        styles.chartBarFill,
+                        {
+                          height: `${Math.max(day.percentage, 4)}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+
+                  <Text style={styles.chartPercentage}>{day.percentage}%</Text>
+                  <Text style={styles.chartDay}>{day.dayName}</Text>
+                </View>
+              ))}
+            </View>
+
+            <Text style={styles.weeklyNote}>
+              Days without completed dose actions show 0%.
+            </Text>
+          </View>
+
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>
+              Today&apos;s Medication Schedule
+            </Text>
+
+            <Pressable
+              style={styles.medicationsButton}
+              onPress={goToCurrentMedications}
+            >
+              <Ionicons name="medical" size={16} color="#2563eb" />
+              <Text style={styles.medicationsButtonText}>Meds</Text>
+            </Pressable>
+          </View>
+
+          {schedule.doses.map((dose) => {
+            const statusStyle = getStatusStyle(dose.status);
+            const isUpdating =
+              isUpdatingDoseId === dose.id || isUpdatingDoseId === "reset-all";
+
+            return (
+              <View key={dose.id} style={styles.doseCard}>
+                <View style={styles.doseHeader}>
+                  <View style={styles.doseInfoBox}>
+                    <Text style={styles.doseName}>{dose.medicationName}</Text>
+                    <Text style={styles.doseMeta}>
+                      {dose.dosage} • {dose.time}
+                    </Text>
+                    <Text style={styles.doseInstruction}>
+                      {dose.instruction}
+                    </Text>
+                  </View>
+
+                  <View style={[styles.statusBadge, statusStyle.badge]}>
+                    <Text style={[styles.statusBadgeText, statusStyle.text]}>
+                      {dose.status}
+                    </Text>
+                    <Ionicons
+                      name={statusStyle.icon}
+                      size={15}
+                      color={statusStyle.iconColor}
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.doseActionsRow}>
+                  <Pressable
+                    style={[
+                      styles.doseActionButton,
+                      styles.takenButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => confirmDoseAction(dose, "Taken")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.doseActionButtonText}>Taken</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.doseActionButton,
+                      styles.missedButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => confirmDoseAction(dose, "Missed")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.doseActionButtonText}>Missed</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.doseActionButton,
+                      styles.snoozeButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => confirmDoseAction(dose, "Snoozed")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.doseActionButtonText}>Snooze</Text>
+                  </Pressable>
+                </View>
+              </View>
+            );
+          })}
+
+          <Text style={styles.sectionTitle}>Adherence History</Text>
+
+          {history.length === 0 ? (
+            <View style={styles.emptyHistoryCard}>
+              <Ionicons
+                name="document-text-outline"
+                size={30}
+                color="#94a3b8"
+              />
+              <Text style={styles.emptyHistoryText}>
+                No adherence actions recorded yet.
+              </Text>
+            </View>
+          ) : (
+            history.map((item) => {
+              const statusStyle = getStatusStyle(item.action);
+
+              return (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.historyIconCircle}>
+                    <Ionicons
+                      name={statusStyle.icon}
+                      size={22}
+                      color={statusStyle.iconColor}
+                    />
+                  </View>
+
+                  <View style={styles.historyTextBox}>
+                    <Text style={styles.historyTitle}>
+                      {item.medicationName}
+                    </Text>
+                    <Text style={styles.historySubtitle}>
+                      {item.action} • {item.time}
+                    </Text>
+                    <Text style={styles.historyDate}>
+                      {new Date(item.createdAt).toLocaleString()}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
+
+          <Pressable
+            style={[
+              styles.resetButton,
+              isUpdatingDoseId === "reset-all" && styles.disabledButton,
+            ]}
+            onPress={resetScheduleStatuses}
+            disabled={isUpdatingDoseId === "reset-all"}
+          >
+            <Ionicons name="refresh" size={18} color="#ef4444" />
+            <Text style={styles.resetButtonText}>
+              {isUpdatingDoseId === "reset-all"
+                ? "Resetting..."
+                : "Reset Today&apos;s Doses"}
+            </Text>
+          </Pressable>
+        </>
       )}
 
       <View style={styles.bottomSpace} />
@@ -509,13 +722,27 @@ export default function AdherenceScreen() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#64748b",
+    textAlign: "center",
+  },
   container: {
     flex: 1,
     backgroundColor: "#f8fafc",
   },
   contentContainer: {
     paddingHorizontal: 18,
-    paddingTop: 54,
+    paddingTop: 56,
     paddingBottom: 34,
   },
   headerRow: {
@@ -523,7 +750,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
   headerTextBox: {
     flex: 1,
@@ -532,37 +759,139 @@ const styles = StyleSheet.create({
     fontSize: 34,
     fontWeight: "900",
     color: "#0f172a",
-    marginBottom: 8,
+    marginBottom: 7,
   },
   subtitle: {
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 15.5,
+    lineHeight: 23,
     color: "#64748b",
+    fontWeight: "600",
   },
-  signOutButton: {
-    backgroundColor: "#fee2e2",
+  scanButton: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#eff6ff",
+    paddingVertical: 10,
+    paddingHorizontal: 13,
     borderRadius: 999,
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    marginTop: 3,
   },
-  signOutText: {
-    color: "#ef4444",
-    fontSize: 14,
+  scanButtonText: {
+    fontSize: 13.5,
     fontWeight: "900",
+    color: "#2563eb",
+  },
+  errorCard: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 14,
+  },
+  errorText: {
+    flex: 1,
+    fontSize: 13.3,
+    lineHeight: 19,
+    color: "#92400e",
+    fontWeight: "700",
+  },
+  emptyScheduleCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 24,
+    padding: 22,
+    alignItems: "center",
+    marginTop: 8,
+    shadowColor: "#000000",
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  emptyIconCircle: {
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: "#dbeafe",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
+  },
+  emptyTitle: {
+    fontSize: 23,
+    fontWeight: "900",
+    color: "#0f172a",
+    marginBottom: 7,
+    textAlign: "center",
+  },
+  emptyText: {
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: "#64748b",
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 18,
+  },
+  emptyButton: {
+    minHeight: 50,
+    borderRadius: 15,
+    backgroundColor: "#2563eb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  emptyButtonText: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  liveCard: {
+    backgroundColor: "#dbeafe",
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginBottom: 14,
+  },
+  liveIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#bfdbfe",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  liveTextBox: {
+    flex: 1,
+  },
+  liveTitle: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#1e3a8a",
+    marginBottom: 3,
+  },
+  liveText: {
+    fontSize: 13.2,
+    lineHeight: 19,
+    color: "#1e40af",
+    fontWeight: "700",
   },
   statsGrid: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 18,
+    gap: 9,
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
-    minHeight: 112,
+    minHeight: 105,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    padding: 10,
+    paddingVertical: 11,
   },
   takenStatCard: {
     backgroundColor: "#dcfce7",
@@ -577,13 +906,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#ede9fe",
   },
   statNumber: {
-    fontSize: 33,
+    fontSize: 26,
     fontWeight: "900",
-    marginTop: 7,
+    marginTop: 6,
   },
   statLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "900",
+    color: "#64748b",
+    marginTop: 2,
+    textAlign: "center",
   },
   takenText: {
     color: "#16a34a",
@@ -598,40 +930,39 @@ const styles = StyleSheet.create({
     color: "#7c3aed",
   },
   adherenceCard: {
-    backgroundColor: "#dbeafe",
+    backgroundColor: "#e0e7ff",
     borderRadius: 22,
-    padding: 18,
+    padding: 17,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 16,
   },
   adherenceTextBox: {
     flex: 1,
-    paddingRight: 12,
   },
   adherenceTitle: {
     fontSize: 20,
     fontWeight: "900",
-    color: "#1e40af",
+    color: "#2563eb",
     marginBottom: 7,
   },
   adherenceSubtitle: {
     fontSize: 14,
     lineHeight: 20,
     color: "#475569",
-    fontWeight: "600",
+    fontWeight: "700",
   },
   adherenceCircle: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
+    marginLeft: 12,
   },
-  adherencePercent: {
-    fontSize: 24,
+  adherencePercentage: {
+    fontSize: 21,
     fontWeight: "900",
     color: "#2563eb",
   },
@@ -639,7 +970,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderRadius: 22,
     padding: 16,
-    marginBottom: 22,
+    marginBottom: 20,
     shadowColor: "#000000",
     shadowOpacity: 0.04,
     shadowRadius: 8,
@@ -648,36 +979,36 @@ const styles = StyleSheet.create({
   weeklyHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
+    gap: 10,
+    marginBottom: 14,
   },
   weeklyTitle: {
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: "900",
     color: "#0f172a",
   },
   weeklySubtitle: {
-    fontSize: 14,
-    color: "#94a3b8",
+    fontSize: 13.5,
     fontWeight: "700",
+    color: "#94a3b8",
     marginTop: 2,
   },
   chartBox: {
-    height: 128,
+    height: 150,
     flexDirection: "row",
     alignItems: "flex-end",
     justifyContent: "space-between",
     borderBottomWidth: 1,
     borderBottomColor: "#e2e8f0",
-    paddingHorizontal: 6,
+    paddingTop: 10,
   },
-  chartColumn: {
+  chartItem: {
+    flex: 1,
     alignItems: "center",
-    width: 36,
   },
   chartBarTrack: {
-    width: 10,
-    height: 72,
+    width: 18,
+    height: 100,
     borderRadius: 999,
     backgroundColor: "#eff6ff",
     justifyContent: "flex-end",
@@ -685,54 +1016,54 @@ const styles = StyleSheet.create({
   },
   chartBarFill: {
     width: "100%",
-    borderRadius: 999,
     backgroundColor: "#2563eb",
+    borderRadius: 999,
   },
-  chartValue: {
-    fontSize: 12,
-    color: "#93c5fd",
-    fontWeight: "900",
-    marginTop: 5,
+  chartPercentage: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#64748b",
+    marginTop: 6,
   },
   chartDay: {
     fontSize: 12,
-    color: "#64748b",
     fontWeight: "800",
-    marginTop: 4,
+    color: "#64748b",
+    marginTop: 3,
   },
   weeklyNote: {
-    textAlign: "center",
+    fontSize: 12.5,
     color: "#94a3b8",
-    fontSize: 13,
     fontWeight: "700",
-    marginTop: 14,
+    marginTop: 12,
+    textAlign: "center",
   },
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   sectionTitle: {
-    flex: 1,
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: "900",
     color: "#0f172a",
+    marginBottom: 12,
+    marginTop: 4,
   },
-  scanButton: {
-    backgroundColor: "#eff6ff",
-    borderRadius: 999,
-    paddingVertical: 9,
-    paddingHorizontal: 13,
+  medicationsButton: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     gap: 5,
   },
-  scanButtonText: {
-    color: "#2563eb",
-    fontSize: 13,
+  medicationsButtonText: {
+    fontSize: 13.5,
     fontWeight: "900",
+    color: "#2563eb",
   },
   doseCard: {
     backgroundColor: "#ffffff",
@@ -748,9 +1079,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 14,
   },
-  doseTextBox: {
+  doseInfoBox: {
     flex: 1,
   },
   doseName: {
@@ -760,9 +1091,9 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   doseMeta: {
-    fontSize: 15,
-    color: "#64748b",
+    fontSize: 14,
     fontWeight: "700",
+    color: "#64748b",
     marginBottom: 8,
   },
   doseInstruction: {
@@ -773,14 +1104,14 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     borderRadius: 999,
-    paddingVertical: 8,
+    paddingVertical: 7,
     paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
   },
   statusBadgeText: {
-    fontSize: 12.5,
+    fontSize: 12,
     fontWeight: "900",
   },
   takenBadge: {
@@ -807,13 +1138,13 @@ const styles = StyleSheet.create({
   pendingBadgeText: {
     color: "#334155",
   },
-  actionRow: {
+  doseActionsRow: {
     flexDirection: "row",
     gap: 8,
   },
-  actionButton: {
+  doseActionButton: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 47,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
@@ -827,48 +1158,29 @@ const styles = StyleSheet.create({
   snoozeButton: {
     backgroundColor: "#f59e0b",
   },
-  actionButtonText: {
+  doseActionButtonText: {
     color: "#ffffff",
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: "900",
   },
-  historyHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  clearButton: {
-    backgroundColor: "#fef2f2",
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 13,
-  },
-  clearButtonText: {
-    color: "#ef4444",
-    fontSize: 13,
-    fontWeight: "900",
+  disabledButton: {
+    opacity: 0.55,
   },
   emptyHistoryCard: {
     backgroundColor: "#ffffff",
-    borderRadius: 22,
+    borderRadius: 20,
     padding: 22,
     alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000000",
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 14,
   },
   emptyHistoryText: {
+    fontSize: 14.5,
     color: "#64748b",
-    fontSize: 14,
     fontWeight: "700",
     marginTop: 8,
     textAlign: "center",
   },
-  historyItem: {
+  historyCard: {
     backgroundColor: "#ffffff",
     borderRadius: 18,
     padding: 14,
@@ -880,10 +1192,11 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  historyIconBox: {
+  historyIconCircle: {
     width: 42,
     height: 42,
     borderRadius: 21,
+    backgroundColor: "#f8fafc",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
@@ -892,20 +1205,36 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   historyTitle: {
-    fontSize: 15.5,
+    fontSize: 16,
     fontWeight: "900",
     color: "#0f172a",
   },
   historySubtitle: {
-    fontSize: 13,
+    fontSize: 13.5,
     color: "#64748b",
     fontWeight: "700",
-    marginTop: 2,
+    marginTop: 3,
   },
   historyDate: {
-    fontSize: 12,
+    fontSize: 12.5,
     color: "#94a3b8",
-    fontWeight: "800",
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  resetButton: {
+    minHeight: 50,
+    borderRadius: 15,
+    backgroundColor: "#fef2f2",
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+  },
+  resetButtonText: {
+    fontSize: 14.5,
+    fontWeight: "900",
+    color: "#ef4444",
   },
   bottomSpace: {
     height: 34,
