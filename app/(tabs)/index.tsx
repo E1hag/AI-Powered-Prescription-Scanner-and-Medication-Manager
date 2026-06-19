@@ -1,552 +1,413 @@
-import { supabase } from "@/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import { router, useFocusEffect } from "expo-router";
+import { useCallback, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-type DoseStatus =
-  | "pending"
-  | "taken"
-  | "missed"
-  | "snoozed"
-  | "Pending"
-  | "Taken"
-  | "Missed"
-  | "Snoozed";
+type DoseStatus = "Pending" | "Taken" | "Missed" | "Snoozed";
 
-type Medication = {
-  id: number;
-  name: string;
+type ScheduleDose = {
+  id: string;
+  medicationId: string;
+  medicationName: string;
   dosage: string;
   time: string;
-  instructions: string;
+  instruction: string;
   status: DoseStatus;
 };
 
-const MEDICATIONS_STORAGE_KEY = "medco_medications_v2";
+type StoredMedicationSchedule = {
+  id: string;
+  createdAt: string;
+  doses: ScheduleDose[];
+};
 
-const defaultMedications: Medication[] = [
+const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
+
+const defaultDoses: ScheduleDose[] = [
   {
-    id: 1,
-    name: "Amoxicillin",
+    id: "default-dose-1",
+    medicationId: "default-med-1",
+    medicationName: "Amoxicillin",
     dosage: "500mg",
     time: "08:00 AM",
-    instructions: "Take after food",
+    instruction: "Take after food",
     status: "Taken",
   },
   {
-    id: 2,
-    name: "Paracetamol",
+    id: "default-dose-2",
+    medicationId: "default-med-2",
+    medicationName: "Paracetamol",
     dosage: "1000mg",
     time: "02:00 PM",
-    instructions: "Take only if needed for pain or fever",
+    instruction: "Take only if needed for pain or fever",
     status: "Taken",
   },
   {
-    id: 3,
-    name: "Vitamin D",
+    id: "default-dose-3",
+    medicationId: "default-med-3",
+    medicationName: "Vitamin D",
     dosage: "1000 IU",
     time: "08:00 PM",
-    instructions: "Take with water",
+    instruction: "Take with water",
     status: "Missed",
   },
 ];
 
-const normalizeStatus = (status: DoseStatus): string => {
-  return status.toLowerCase();
-};
-
-const parseTimeToMinutes = (timeStr: string): number => {
-  const parts = timeStr.split(" ");
-  const period = parts[1];
-  const timeParts = parts[0].split(":");
-
-  let hours = parseInt(timeParts[0], 10);
-  const minutes = parseInt(timeParts[1], 10);
-
-  if (period === "PM" && hours !== 12) hours += 12;
-  if (period === "AM" && hours === 12) hours = 0;
-
-  return hours * 60 + minutes;
-};
-
-const getMinutesUntil = (timeStr: string): number => {
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  return parseTimeToMinutes(timeStr) - currentMinutes;
-};
-
-const CircularStatus = ({
-  status,
-  minutes,
-}: {
-  status: string;
-  minutes: number;
-}) => {
-  const size = 82;
-  const strokeWidth = 8;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = radius * 2 * Math.PI;
-
-  const isDone = status === "taken";
-  const isMissed = status === "missed";
-
-  const absMinutes = Math.abs(minutes);
-  const progress = Math.max(0, Math.min(absMinutes / 120, 1));
-  const strokeDashoffset = circumference - progress * circumference;
-
-  const strokeColor = isDone ? "#16a34a" : isMissed ? "#dc2626" : "#2563eb";
-
-  return (
-    <View style={styles.circularContainer}>
-      <Svg width={size} height={size}>
-        <Circle
-          stroke="#e2e8f0"
-          fill="none"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={strokeWidth}
-        />
-        <Circle
-          stroke={strokeColor}
-          fill="none"
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          strokeWidth={strokeWidth}
-          strokeDasharray={`${circumference} ${circumference}`}
-          strokeDashoffset={isDone || isMissed ? 0 : strokeDashoffset}
-          strokeLinecap="round"
-          rotation="-90"
-          origin={`${size / 2}, ${size / 2}`}
-        />
-      </Svg>
-
-      <View style={styles.circularTextContainer}>
-        {isDone ? (
-          <>
-            <Text style={styles.circularSmallText}>Done</Text>
-            <Ionicons name="checkmark-circle" size={31} color="#16a34a" />
-          </>
-        ) : isMissed ? (
-          <>
-            <Text style={styles.circularSmallText}>Missed</Text>
-            <Ionicons name="close-circle" size={31} color="#dc2626" />
-          </>
-        ) : (
-          <>
-            <Text style={styles.circularSmallText}>
-              {minutes < 0 ? "Over" : "In"}
-            </Text>
-            <Text style={styles.circularNumber}>
-              {absMinutes < 60 ? absMinutes : Math.floor(absMinutes / 60)}
-            </Text>
-            <Text style={styles.circularUnit}>
-              {absMinutes < 60 ? "min" : "hr"}
-            </Text>
-          </>
-        )}
-      </View>
-    </View>
-  );
-};
-
 export default function HomeScreen() {
-  const router = useRouter();
-  const [medications, setMedications] =
-    useState<Medication[]>(defaultMedications);
-  const [userName, setUserName] = useState("Uthman");
+  const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
+  const [hasSavedSchedule, setHasSavedSchedule] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadSavedSchedule = async () => {
     try {
-      const saved = await AsyncStorage.getItem(MEDICATIONS_STORAGE_KEY);
+      const savedScheduleRaw = await AsyncStorage.getItem(
+        MEDCO_SCHEDULE_STORAGE_KEY,
+      );
 
-      if (saved) {
-        setMedications(JSON.parse(saved));
+      if (!savedScheduleRaw) {
+        setDoses(defaultDoses);
+        setHasSavedSchedule(false);
+        return;
       }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      const savedSchedule = JSON.parse(
+        savedScheduleRaw,
+      ) as StoredMedicationSchedule;
 
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name")
-          .eq("id", session.user.id)
-          .single();
-
-        if (profile?.full_name) {
-          setUserName(profile.full_name.split(" ")[0]);
-        } else if (session.user.email) {
-          setUserName(session.user.email.split("@")[0]);
-        }
+      if (
+        Array.isArray(savedSchedule.doses) &&
+        savedSchedule.doses.length > 0
+      ) {
+        setDoses(savedSchedule.doses);
+        setHasSavedSchedule(true);
+      } else {
+        setDoses(defaultDoses);
+        setHasSavedSchedule(false);
       }
-    } catch (error) {
-      console.log("Home load error:", error);
+    } catch {
+      setDoses(defaultDoses);
+      setHasSavedSchedule(false);
     }
   };
 
-  const getNextDose = (): Medication | null => {
-    const pending = medications.filter(
-      (medication) => normalizeStatus(medication.status) === "pending",
-    );
+  useFocusEffect(
+    useCallback(() => {
+      loadSavedSchedule();
+    }, []),
+  );
 
-    if (pending.length === 0) {
-      return medications[0] || null;
+  const stats = useMemo(() => {
+    const taken = doses.filter((dose) => dose.status === "Taken").length;
+    const missed = doses.filter((dose) => dose.status === "Missed").length;
+    const pending = doses.filter((dose) => dose.status === "Pending").length;
+    const snoozed = doses.filter((dose) => dose.status === "Snoozed").length;
+
+    return {
+      taken,
+      missed,
+      pending,
+      snoozed,
+      reminders: doses.length,
+    };
+  }, [doses]);
+
+  const nextDose = useMemo(() => {
+    const pendingDose = doses.find((dose) => dose.status === "Pending");
+
+    if (pendingDose) {
+      return pendingDose;
     }
 
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    return doses[0] ?? null;
+  }, [doses]);
 
-    const futurePending = pending
-      .map((medication) => ({
-        ...medication,
-        totalMinutes: parseTimeToMinutes(medication.time),
-      }))
-      .filter((medication) => medication.totalMinutes > currentMinutes)
-      .sort((a, b) => a.totalMinutes - b.totalMinutes);
-
-    if (futurePending.length > 0) {
-      return futurePending[0];
-    }
-
-    return pending[0];
+  const goToScanner = () => {
+    router.push("/prescriptions/new");
   };
 
-  const getTimeStatus = (timeStr: string, status: DoseStatus): string => {
-    const normalStatus = normalizeStatus(status);
-
-    if (normalStatus === "taken") return "Taken";
-    if (normalStatus === "missed") return "Missed";
-    if (normalStatus === "snoozed") return "Snoozed";
-
-    const minutesUntil = getMinutesUntil(timeStr);
-
-    if (minutesUntil <= 0) return "Overdue";
-    if (minutesUntil <= 60) return "Upcoming";
-    return "Pending";
+  const goToCurrentMedications = () => {
+    router.push("/current-medications");
   };
 
-  const getStatusColors = (timeStr: string, status: DoseStatus) => {
-    const normalStatus = normalizeStatus(status);
+  const goToDoseReminders = () => {
+    router.push("/dose-reminders");
+  };
 
-    if (normalStatus === "taken") {
+  const goToDrugSafety = () => {
+    router.push("/medical-conditions");
+  };
+
+  const goToAdherence = () => {
+    router.push("/(tabs)/adherence");
+  };
+
+  const getStatusStyle = (status: DoseStatus) => {
+    if (status === "Taken") {
       return {
-        color: "#16a34a",
-        background: "#dcfce7",
+        badge: styles.takenBadge,
+        text: styles.takenBadgeText,
         icon: "checkmark-circle" as const,
+        iconColor: "#16a34a",
       };
     }
 
-    if (normalStatus === "missed") {
+    if (status === "Missed") {
       return {
-        color: "#dc2626",
-        background: "#fee2e2",
+        badge: styles.missedBadge,
+        text: styles.missedBadgeText,
         icon: "close-circle" as const,
+        iconColor: "#dc2626",
       };
     }
 
-    if (normalStatus === "snoozed") {
+    if (status === "Snoozed") {
       return {
-        color: "#f59e0b",
-        background: "#fef3c7",
+        badge: styles.snoozedBadge,
+        text: styles.snoozedBadgeText,
         icon: "time" as const,
-      };
-    }
-
-    const minutesUntil = getMinutesUntil(timeStr);
-
-    if (minutesUntil <= 60) {
-      return {
-        color: "#2563eb",
-        background: "#dbeafe",
-        icon: "time" as const,
+        iconColor: "#f59e0b",
       };
     }
 
     return {
-      color: "#64748b",
-      background: "#f1f5f9",
-      icon: "ellipse-outline" as const,
+      badge: styles.upcomingBadge,
+      text: styles.upcomingBadgeText,
+      icon: "time-outline" as const,
+      iconColor: "#2563eb",
     };
   };
 
-  const takenCount = medications.filter(
-    (medication) => normalizeStatus(medication.status) === "taken",
-  ).length;
-
-  const missedCount = medications.filter(
-    (medication) => normalizeStatus(medication.status) === "missed",
-  ).length;
-
-  const pendingCount = medications.filter(
-    (medication) => normalizeStatus(medication.status) === "pending",
-  ).length;
-
-  const nextDose = getNextDose();
-  const nextDoseStatus = nextDose
-    ? normalizeStatus(nextDose.status)
-    : "pending";
-  const minutesUntilNext = nextDose ? getMinutesUntil(nextDose.time) : 0;
-
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
+      <View style={styles.headerRow}>
         <View>
-          <Text style={styles.greeting}>Hello, {userName} 👋</Text>
+          <Text style={styles.greeting}>Hello, Uthman 👋</Text>
           <Text style={styles.subtitle}>
-            Stay on track with your{"\n"}medications today.
+            Stay on track with your medications today.
           </Text>
         </View>
 
-        <TouchableOpacity style={styles.bellButton}>
-          <Ionicons name="notifications-outline" size={24} color="#0f172a" />
-        </TouchableOpacity>
+        <Pressable style={styles.bellButton}>
+          <Ionicons name="notifications-outline" size={26} color="#0f172a" />
+        </Pressable>
       </View>
 
-      {nextDose && (
+      {nextDose ? (
         <View style={styles.nextDoseCard}>
           <View style={styles.nextDoseLeft}>
             <Text style={styles.nextDoseLabel}>Next Dose</Text>
+            <Text style={styles.nextDoseName}>{nextDose.medicationName}</Text>
 
-            <Text style={styles.nextDoseName}>
-              {nextDose.name}
-              {"\n"}
-              {nextDose.dosage}
-            </Text>
+            <View style={styles.nextDoseMetaRow}>
+              <Ionicons name="link-outline" size={17} color="#64748b" />
+              <Text style={styles.nextDoseMeta}>{nextDose.dosage}</Text>
 
-            <View style={styles.nextDoseInfoRow}>
-              <Ionicons name="link-outline" size={14} color="#64748b" />
-              <Text style={styles.nextDoseInfo}> 1 Capsule</Text>
-
-              <Ionicons
-                name="restaurant-outline"
-                size={14}
-                color="#64748b"
-                style={styles.foodIcon}
-              />
-              <Text style={styles.nextDoseInfo}> {nextDose.instructions}</Text>
+              <Ionicons name="restaurant-outline" size={17} color="#64748b" />
+              <Text style={styles.nextDoseMeta}>{nextDose.instruction}</Text>
             </View>
 
-            <View style={styles.timeRow}>
-              <Ionicons name="time-outline" size={17} color="#2563eb" />
-              <Text style={styles.nextDoseTime}> {nextDose.time}</Text>
+            <View style={styles.nextDoseTimeRow}>
+              <Ionicons name="time-outline" size={20} color="#2563eb" />
+              <Text style={styles.nextDoseTime}>{nextDose.time}</Text>
             </View>
           </View>
 
-          <CircularStatus status={nextDoseStatus} minutes={minutesUntilNext} />
+          <View style={styles.nextDoseCircle}>
+            <Text style={styles.nextDoseCircleText}>
+              {nextDose.status === "Pending" ? "Next" : "Done"}
+            </Text>
+            <Ionicons
+              name={
+                nextDose.status === "Pending"
+                  ? "alarm-outline"
+                  : "checkmark-circle"
+              }
+              size={38}
+              color={nextDose.status === "Pending" ? "#2563eb" : "#16a34a"}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.allGoodCard}>
+          <Ionicons name="checkmark-circle" size={38} color="#16a34a" />
+          <Text style={styles.allGoodText}>All doses completed for today!</Text>
         </View>
       )}
 
-      <View style={styles.sectionHeader}>
+      {!hasSavedSchedule && (
+        <View style={styles.demoNoticeCard}>
+          <Ionicons name="information-circle" size={20} color="#2563eb" />
+          <Text style={styles.demoNoticeText}>
+            Demo data is showing. Scan and save a prescription schedule to show
+            your own medication doses here.
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <TouchableOpacity>
-          <Text style={styles.viewText}>View All</Text>
-        </TouchableOpacity>
+        <Pressable>
+          <Text style={styles.viewLink}>View All</Text>
+        </Pressable>
       </View>
 
       <View style={styles.quickActionsRow}>
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => router.push("/(tabs)/scan")}
-        >
-          <View style={[styles.quickIconBox, { backgroundColor: "#dbeafe" }]}>
-            <Ionicons name="document-text" size={25} color="#2563eb" />
+        <Pressable style={styles.quickActionCard} onPress={goToScanner}>
+          <View style={[styles.quickIconBox, styles.blueIconBox]}>
+            <Ionicons name="document-text" size={30} color="#2563eb" />
           </View>
-          <Text style={styles.quickText}>Scan</Text>
-        </TouchableOpacity>
+          <Text style={styles.quickActionText}>Scan Prescription</Text>
+        </Pressable>
 
-        <TouchableOpacity
+        <Pressable
           style={styles.quickActionCard}
-          onPress={() => router.push("/(tabs)/adherence")}
+          onPress={goToCurrentMedications}
         >
-          <View style={[styles.quickIconBox, { backgroundColor: "#dcfce7" }]}>
-            <Ionicons name="medical" size={25} color="#16a34a" />
+          <View style={[styles.quickIconBox, styles.greenIconBox]}>
+            <Ionicons name="medical" size={31} color="#16a34a" />
           </View>
-          <Text style={styles.quickText}>Meds</Text>
-        </TouchableOpacity>
+          <Text style={styles.quickActionText}>My Meds</Text>
+        </Pressable>
 
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => router.push("/(tabs)/adherence")}
-        >
-          <View style={[styles.quickIconBox, { backgroundColor: "#ede9fe" }]}>
-            <Ionicons name="alarm" size={25} color="#7c3aed" />
+        <Pressable style={styles.quickActionCard} onPress={goToDoseReminders}>
+          <View style={[styles.quickIconBox, styles.purpleIconBox]}>
+            <Ionicons name="alarm" size={30} color="#7c3aed" />
           </View>
-          <Text style={styles.quickText}>Reminder</Text>
-        </TouchableOpacity>
+          <Text style={styles.quickActionText}>Dose Reminder</Text>
+        </Pressable>
 
-        <TouchableOpacity
-          style={styles.quickActionCard}
-          onPress={() => router.push("/(tabs)/chatbot")}
-        >
-          <View style={[styles.quickIconBox, { backgroundColor: "#fef3c7" }]}>
-            <Ionicons name="warning" size={25} color="#f59e0b" />
+        <Pressable style={styles.quickActionCard} onPress={goToDrugSafety}>
+          <View style={[styles.quickIconBox, styles.yellowIconBox]}>
+            <Ionicons name="warning" size={30} color="#f59e0b" />
           </View>
-          <Text style={styles.quickText}>Safety</Text>
-        </TouchableOpacity>
+          <Text style={styles.quickActionText}>Drug Safety</Text>
+        </Pressable>
       </View>
 
-      <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Today&apos;s Overview</Text>
-        <TouchableOpacity onPress={() => router.push("/(tabs)/adherence")}>
-          <Text style={styles.viewText}>View Calendar ›</Text>
-        </TouchableOpacity>
+        <Pressable onPress={goToAdherence}>
+          <Text style={styles.viewLink}>View Calendar ›</Text>
+        </Pressable>
       </View>
 
       <View style={styles.overviewRow}>
-        <View style={[styles.overviewCard, { backgroundColor: "#dcfce7" }]}>
-          <Ionicons name="checkmark-circle" size={23} color="#16a34a" />
-          <Text style={[styles.overviewNumber, { color: "#16a34a" }]}>
-            {takenCount}
+        <View style={[styles.overviewCard, styles.takenOverviewCard]}>
+          <Ionicons name="checkmark-circle" size={29} color="#16a34a" />
+          <Text style={[styles.overviewNumber, styles.takenText]}>
+            {stats.taken}
           </Text>
-          <Text style={[styles.overviewLabel, { color: "#16a34a" }]}>
-            Taken
-          </Text>
+          <Text style={[styles.overviewLabel, styles.takenText]}>Taken</Text>
         </View>
 
-        <View style={[styles.overviewCard, { backgroundColor: "#fee2e2" }]}>
-          <Ionicons name="close-circle" size={23} color="#dc2626" />
-          <Text style={[styles.overviewNumber, { color: "#dc2626" }]}>
-            {missedCount}
+        <View style={[styles.overviewCard, styles.missedOverviewCard]}>
+          <Ionicons name="close-circle" size={29} color="#dc2626" />
+          <Text style={[styles.overviewNumber, styles.missedText]}>
+            {stats.missed}
           </Text>
-          <Text style={[styles.overviewLabel, { color: "#dc2626" }]}>
-            Missed
-          </Text>
+          <Text style={[styles.overviewLabel, styles.missedText]}>Missed</Text>
         </View>
 
-        <View style={[styles.overviewCard, { backgroundColor: "#fef3c7" }]}>
-          <Ionicons name="time" size={23} color="#f59e0b" />
-          <Text style={[styles.overviewNumber, { color: "#f59e0b" }]}>
-            {pendingCount}
+        <View style={[styles.overviewCard, styles.pendingOverviewCard]}>
+          <Ionicons name="time" size={29} color="#f59e0b" />
+          <Text style={[styles.overviewNumber, styles.pendingText]}>
+            {stats.pending}
           </Text>
-          <Text style={[styles.overviewLabel, { color: "#f59e0b" }]}>
+          <Text style={[styles.overviewLabel, styles.pendingText]}>
             Pending
           </Text>
         </View>
 
-        <View style={[styles.overviewCard, { backgroundColor: "#ede9fe" }]}>
-          <Ionicons name="notifications" size={23} color="#7c3aed" />
-          <Text style={[styles.overviewNumber, { color: "#7c3aed" }]}>
-            {medications.length}
+        <View style={[styles.overviewCard, styles.reminderOverviewCard]}>
+          <Ionicons name="notifications" size={29} color="#7c3aed" />
+          <Text style={[styles.overviewNumber, styles.reminderText]}>
+            {stats.reminders}
           </Text>
-          <Text style={[styles.overviewLabel, { color: "#7c3aed" }]}>
+          <Text style={[styles.overviewLabel, styles.reminderText]}>
             Reminders
           </Text>
         </View>
       </View>
 
-      <View style={styles.sectionHeader}>
+      <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Today&apos;s Schedule</Text>
-        <TouchableOpacity onPress={() => router.push("/(tabs)/adherence")}>
-          <Text style={styles.viewText}>View Full</Text>
-        </TouchableOpacity>
+        <Pressable onPress={goToAdherence}>
+          <Text style={styles.viewLink}>View Full</Text>
+        </Pressable>
       </View>
 
       <View style={styles.scheduleCard}>
-        {medications.map((medication, index) => {
-          const statusColors = getStatusColors(
-            medication.time,
-            medication.status,
-          );
-          const isLast = index === medications.length - 1;
+        {doses.slice(0, 3).map((dose) => {
+          const statusStyle = getStatusStyle(dose.status);
 
           return (
-            <View key={medication.id}>
-              <View style={styles.scheduleRow}>
-                <View style={styles.scheduleTimeCol}>
-                  <Text
-                    style={[styles.scheduleTime, { color: statusColors.color }]}
-                  >
-                    {medication.time}
-                  </Text>
-                </View>
-
-                <View style={styles.timelineCol}>
-                  <View
-                    style={[
-                      styles.timelineDot,
-                      { backgroundColor: statusColors.color },
-                    ]}
-                  />
-                  {!isLast && <View style={styles.timelineLine} />}
-                </View>
-
-                <View style={styles.medicationInfo}>
-                  <Text style={styles.medicationName}>
-                    {medication.name} {medication.dosage}
-                  </Text>
-                  <Text style={styles.medicationDetails}>
-                    1 Tablet • {medication.instructions}
-                  </Text>
-                </View>
-
-                <View
+            <View key={dose.id} style={styles.scheduleRow}>
+              <View style={styles.timeBox}>
+                <Text
                   style={[
-                    styles.statusBadge,
-                    { backgroundColor: statusColors.background },
+                    styles.scheduleTime,
+                    dose.status === "Missed" && styles.missedScheduleTime,
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      { color: statusColors.color },
-                    ]}
-                  >
-                    {getTimeStatus(medication.time, medication.status)}
-                  </Text>
-                  <Ionicons
-                    name={statusColors.icon}
-                    size={15}
-                    color={statusColors.color}
-                  />
-                </View>
+                  {dose.time}
+                </Text>
               </View>
 
-              {!isLast && <View style={styles.scheduleSpacer} />}
+              <View style={styles.timelineBox}>
+                <View
+                  style={[
+                    styles.timelineDot,
+                    dose.status === "Missed" && styles.timelineDotMissed,
+                  ]}
+                />
+                <View style={styles.timelineLine} />
+              </View>
+
+              <View style={styles.scheduleTextBox}>
+                <Text style={styles.scheduleName}>{dose.medicationName}</Text>
+                <Text style={styles.scheduleMeta}>
+                  {dose.dosage} • {dose.instruction}
+                </Text>
+              </View>
+
+              <View style={[styles.statusBadge, statusStyle.badge]}>
+                <Text style={[styles.statusBadgeText, statusStyle.text]}>
+                  {dose.status === "Pending" ? "Upcoming" : dose.status}
+                </Text>
+                <Ionicons
+                  name={statusStyle.icon}
+                  size={15}
+                  color={statusStyle.iconColor}
+                />
+              </View>
             </View>
           );
         })}
 
-        <TouchableOpacity style={styles.addButton}>
-          <Ionicons name="add" size={18} color="#16a34a" />
-          <Text style={styles.addButtonText}>Add Medication</Text>
-        </TouchableOpacity>
+        <Pressable style={styles.addMedicationButton} onPress={goToScanner}>
+          <Ionicons name="add" size={24} color="#16a34a" />
+          <Text style={styles.addMedicationText}>Add Medication</Text>
+        </Pressable>
       </View>
 
-      <TouchableOpacity
-        style={styles.interactionCard}
-        onPress={() => router.push("/(tabs)/chatbot")}
-      >
-        <View style={styles.interactionLeft}>
-          <View style={styles.interactionIconBox}>
-            <Ionicons name="shield-checkmark" size={26} color="#16a34a" />
-          </View>
-
-          <View style={styles.interactionTextContainer}>
-            <Text style={styles.interactionTitle}>All Good!</Text>
-            <Text style={styles.interactionSubtitle}>
-              No potential drug interactions found in your current medications.
-            </Text>
-          </View>
+      <Pressable style={styles.safetyCard} onPress={goToDrugSafety}>
+        <View style={styles.safetyIconCircle}>
+          <Ionicons name="shield-checkmark" size={34} color="#16a34a" />
         </View>
 
-        <Ionicons name="chevron-forward" size={21} color="#94a3b8" />
-      </TouchableOpacity>
+        <View style={styles.safetyTextBox}>
+          <Text style={styles.safetyTitle}>All Good!</Text>
+          <Text style={styles.safetySubtitle}>
+            No potential drug interactions found in your current medications.
+          </Text>
+        </View>
+
+        <Ionicons name="chevron-forward" size={24} color="#94a3b8" />
+      </Pressable>
 
       <View style={styles.bottomSpace} />
     </ScrollView>
@@ -556,297 +417,391 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
-    paddingHorizontal: 20,
+    backgroundColor: "#f8fafc",
   },
-
-  header: {
-    marginTop: 46,
-    marginBottom: 18,
+  contentContainer: {
+    paddingHorizontal: 18,
+    paddingTop: 56,
+    paddingBottom: 34,
+  },
+  headerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 26,
   },
   greeting: {
-    fontSize: 29,
-    fontWeight: "bold",
+    fontSize: 32,
+    fontWeight: "900",
     color: "#0f172a",
+    marginBottom: 7,
   },
   subtitle: {
-    marginTop: 6,
-    fontSize: 18,
+    fontSize: 17,
+    lineHeight: 24,
     color: "#94a3b8",
-    lineHeight: 27,
+    fontWeight: "600",
   },
   bellButton: {
-    marginTop: 12,
-    width: 38,
-    height: 38,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
+    marginTop: 6,
   },
-
   nextDoseCard: {
     backgroundColor: "#eef2ff",
     borderRadius: 24,
-    padding: 18,
-    marginBottom: 24,
+    padding: 19,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    marginBottom: 14,
   },
   nextDoseLeft: {
     flex: 1,
     paddingRight: 10,
   },
   nextDoseLabel: {
+    fontSize: 16,
+    fontWeight: "900",
     color: "#2563eb",
-    fontSize: 17,
-    fontWeight: "bold",
-    marginBottom: 8,
+    marginBottom: 9,
   },
   nextDoseName: {
+    fontSize: 25,
+    fontWeight: "900",
     color: "#0f172a",
-    fontSize: 24,
-    fontWeight: "bold",
-    lineHeight: 31,
     marginBottom: 10,
   },
-  nextDoseInfoRow: {
+  nextDoseMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    marginBottom: 10,
+    gap: 4,
+    marginBottom: 11,
   },
-  nextDoseInfo: {
-    fontSize: 15,
+  nextDoseMeta: {
+    fontSize: 14,
     color: "#64748b",
+    fontWeight: "700",
+    marginRight: 6,
   },
-  foodIcon: {
-    marginLeft: 10,
-  },
-  timeRow: {
+  nextDoseTimeRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 6,
   },
   nextDoseTime: {
-    color: "#2563eb",
-    fontSize: 22,
-    fontWeight: "bold",
-  },
-
-  circularContainer: {
-    width: 82,
-    height: 82,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circularTextContainer: {
-    position: "absolute",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circularSmallText: {
-    fontSize: 12,
-    color: "#64748b",
-    marginBottom: 2,
-  },
-  circularNumber: {
-    fontSize: 23,
-    color: "#0f172a",
-    fontWeight: "bold",
-    lineHeight: 26,
-  },
-  circularUnit: {
-    fontSize: 11,
-    color: "#64748b",
-  },
-
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 13,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#0f172a",
-  },
-  viewText: {
-    color: "#2563eb",
     fontSize: 18,
+    color: "#2563eb",
+    fontWeight: "900",
+  },
+  nextDoseCircle: {
+    width: 98,
+    height: 98,
+    borderRadius: 49,
+    borderWidth: 9,
+    borderColor: "#16a34a",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#eef2ff",
+  },
+  nextDoseCircleText: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#64748b",
+    marginBottom: 3,
+  },
+  allGoodCard: {
+    backgroundColor: "#dcfce7",
+    borderRadius: 24,
+    paddingVertical: 28,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    marginBottom: 14,
+  },
+  allGoodText: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#166534",
+  },
+  demoNoticeCard: {
+    backgroundColor: "#dbeafe",
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+    marginBottom: 20,
+  },
+  demoNoticeText: {
+    flex: 1,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#1e40af",
     fontWeight: "700",
   },
-
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 13,
+    marginTop: 4,
+  },
+  sectionTitle: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#0f172a",
+  },
+  viewLink: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#2563eb",
+  },
   quickActionsRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 26,
+    gap: 9,
+    marginBottom: 25,
   },
   quickActionCard: {
     flex: 1,
-    height: 126,
+    minHeight: 127,
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   quickIconBox: {
-    width: 58,
-    height: 58,
-    borderRadius: 17,
+    width: 57,
+    height: 57,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    marginBottom: 11,
   },
-  quickText: {
-    fontSize: 15,
-    fontWeight: "bold",
+  blueIconBox: {
+    backgroundColor: "#dbeafe",
+  },
+  greenIconBox: {
+    backgroundColor: "#dcfce7",
+  },
+  purpleIconBox: {
+    backgroundColor: "#ede9fe",
+  },
+  yellowIconBox: {
+    backgroundColor: "#fef3c7",
+  },
+  quickActionText: {
+    fontSize: 13,
+    lineHeight: 17,
     color: "#0f172a",
+    fontWeight: "900",
     textAlign: "center",
   },
-
   overviewRow: {
     flexDirection: "row",
-    gap: 10,
-    marginBottom: 26,
+    gap: 9,
+    marginBottom: 25,
   },
   overviewCard: {
     flex: 1,
-    height: 102,
-    borderRadius: 20,
+    minHeight: 101,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
+    paddingVertical: 10,
+  },
+  takenOverviewCard: {
+    backgroundColor: "#dcfce7",
+  },
+  missedOverviewCard: {
+    backgroundColor: "#fee2e2",
+  },
+  pendingOverviewCard: {
+    backgroundColor: "#fef3c7",
+  },
+  reminderOverviewCard: {
+    backgroundColor: "#ede9fe",
   },
   overviewNumber: {
-    fontSize: 31,
-    fontWeight: "bold",
-    marginTop: 4,
+    fontSize: 30,
+    fontWeight: "900",
+    marginTop: 6,
   },
   overviewLabel: {
-    fontSize: 14,
-    fontWeight: "bold",
-    marginTop: 1,
+    fontSize: 12.5,
+    fontWeight: "900",
   },
-
+  takenText: {
+    color: "#16a34a",
+  },
+  missedText: {
+    color: "#dc2626",
+  },
+  pendingText: {
+    color: "#f59e0b",
+  },
+  reminderText: {
+    color: "#7c3aed",
+  },
   scheduleCard: {
     backgroundColor: "#ffffff",
     borderRadius: 24,
-    padding: 18,
-    marginBottom: 20,
+    padding: 15,
+    marginBottom: 18,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   scheduleRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
+    marginBottom: 17,
   },
-  scheduleTimeCol: {
-    width: 82,
+  timeBox: {
+    width: 83,
+    paddingTop: 4,
   },
   scheduleTime: {
-    fontSize: 17,
-    fontWeight: "bold",
+    fontSize: 15,
+    color: "#16a34a",
+    fontWeight: "900",
   },
-  timelineCol: {
-    width: 23,
+  missedScheduleTime: {
+    color: "#dc2626",
+  },
+  timelineBox: {
+    width: 22,
     alignItems: "center",
-    marginRight: 10,
+    paddingTop: 6,
   },
   timelineDot: {
-    width: 9,
-    height: 9,
+    width: 10,
+    height: 10,
     borderRadius: 5,
+    backgroundColor: "#16a34a",
+  },
+  timelineDotMissed: {
+    backgroundColor: "#dc2626",
   },
   timelineLine: {
     width: 2,
-    height: 40,
+    height: 45,
     backgroundColor: "#e2e8f0",
     marginTop: 4,
   },
-  medicationInfo: {
+  scheduleTextBox: {
     flex: 1,
+    paddingRight: 7,
   },
-  medicationName: {
-    fontSize: 18,
-    fontWeight: "bold",
+  scheduleName: {
+    fontSize: 17,
+    fontWeight: "900",
     color: "#0f172a",
+    marginBottom: 3,
   },
-  medicationDetails: {
-    marginTop: 2,
-    fontSize: 15,
+  scheduleMeta: {
+    fontSize: 13.5,
+    lineHeight: 19,
     color: "#94a3b8",
-    lineHeight: 20,
+    fontWeight: "700",
   },
   statusBadge: {
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 9,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    gap: 4,
   },
   statusBadgeText: {
-    fontSize: 15,
-    fontWeight: "bold",
+    fontSize: 12,
+    fontWeight: "900",
   },
-  scheduleSpacer: {
-    height: 13,
-  },
-  addButton: {
-    marginTop: 10,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#f1f5f9",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 7,
-  },
-  addButtonText: {
-    color: "#16a34a",
-    fontSize: 17,
-    fontWeight: "bold",
-  },
-
-  interactionCard: {
-    backgroundColor: "#ecfdf5",
-    borderRadius: 24,
-    padding: 17,
-    marginBottom: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  interactionLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: 13,
-  },
-  interactionIconBox: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+  takenBadge: {
     backgroundColor: "#dcfce7",
+  },
+  takenBadgeText: {
+    color: "#15803d",
+  },
+  missedBadge: {
+    backgroundColor: "#fee2e2",
+  },
+  missedBadgeText: {
+    color: "#dc2626",
+  },
+  snoozedBadge: {
+    backgroundColor: "#fef3c7",
+  },
+  snoozedBadgeText: {
+    color: "#b45309",
+  },
+  upcomingBadge: {
+    backgroundColor: "#dbeafe",
+  },
+  upcomingBadgeText: {
+    color: "#2563eb",
+  },
+  addMedicationButton: {
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    paddingTop: 15,
+    marginTop: 2,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
-  interactionTextContainer: {
+  addMedicationText: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#16a34a",
+  },
+  safetyCard: {
+    backgroundColor: "#dcfce7",
+    borderRadius: 22,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  safetyIconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#bbf7d0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 13,
+  },
+  safetyTextBox: {
     flex: 1,
   },
-  interactionTitle: {
-    fontSize: 17,
-    fontWeight: "bold",
+  safetyTitle: {
+    fontSize: 18,
+    fontWeight: "900",
     color: "#0f172a",
+    marginBottom: 4,
   },
-  interactionSubtitle: {
+  safetySubtitle: {
     fontSize: 14,
-    color: "#64748b",
     lineHeight: 19,
-    marginTop: 2,
+    color: "#64748b",
+    fontWeight: "700",
   },
-
   bottomSpace: {
     height: 28,
   },

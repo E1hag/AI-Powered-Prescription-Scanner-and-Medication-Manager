@@ -5,21 +5,21 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
+        headerShown: false,
         tabBarActiveTintColor: "#2563eb",
         tabBarInactiveTintColor: "#94a3b8",
         tabBarStyle: {
+          height: 82,
+          paddingTop: 8,
+          paddingBottom: 18,
           backgroundColor: "#ffffff",
           borderTopWidth: 1,
-          borderTopColor: "#f1f5f9",
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 65,
+          borderTopColor: "#e5e7eb",
         },
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "600",
+          fontSize: 12,
+          fontWeight: "700",
         },
-        headerShown: false,
       }}
     >
       <Tabs.Screen
@@ -31,6 +31,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="scan"
         options={{
@@ -40,6 +41,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="chatbot"
         options={{
@@ -49,6 +51,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="adherence"
         options={{
@@ -58,6 +61,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
@@ -67,6 +71,7 @@ export default function TabLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="explore"
         options={{

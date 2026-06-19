@@ -1,4 +1,4 @@
-# dependencies
+# Dependencies
 node_modules/
 
 # Expo
@@ -6,7 +6,7 @@ node_modules/
 dist/
 web-build/
 
-# Native builds
+# Native build folders
 ios/
 android/
 
@@ -14,6 +14,14 @@ android/
 .env
 .env.*
 !.env.example
+
+# Google / Firebase / Service Account JSON secrets
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
+!app.json
+!expo-env.d.ts
 
 # Logs
 npm-debug.log*
@@ -27,11 +35,11 @@ pnpm-debug.log*
 # TypeScript
 *.tsbuildinfo
 
-# IDE
+# IDE / editor settings
 .vscode/
 .idea/
 
-# Supabase local
+# Supabase local files
 .supabase/
 supabase/.branches/
 supabase/.temp/
@@ -39,3 +47,18 @@ supabase/.temp/
 # Build outputs
 build/
 coverage/
+
+# Xcode temporary files
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# CocoaPods
+Pods/
+
+# Metro / React Native cache
+.metro-cache/
+
+# Accidental duplicate files
+package-lock 2.json

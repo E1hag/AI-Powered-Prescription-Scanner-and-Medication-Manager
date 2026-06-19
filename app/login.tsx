@@ -1,8 +1,10 @@
-import { supabase } from "@/lib/supabase";
-import { useRouter } from "expo-router";
+import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,261 +16,276 @@ import {
 } from "react-native";
 
 export default function LoginScreen() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState("group12prescription@gmail.com");
   const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [isLogin, setIsLogin] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleAuth = async () => {
-    setErrorMessage("");
-    setSuccessMessage("");
-
-    if (!email || !password) {
-      setErrorMessage("Please enter your email and password.");
+  const signIn = async () => {
+    if (!isSupabaseConfigured) {
+      Alert.alert(
+        "Supabase Not Configured",
+        "Please check your .env file. Your Supabase URL or anon key is missing or invalid.",
+      );
       return;
     }
 
-    if (!isLogin && !fullName) {
-      setErrorMessage("Please enter your full name.");
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Missing Details", "Please enter both email and password.");
       return;
     }
-
-    setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+      setIsLoading(true);
 
-        if (error) {
-          setErrorMessage(error.message);
-        } else {
-          router.replace("/(tabs)/adherence");
-        }
-      } else {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
+      });
 
-        if (error) {
-          setErrorMessage(error.message);
-        } else if (data.user) {
-          const { error: profileError } = await supabase
-            .from("profiles")
-            .insert({
-              id: data.user.id,
-              full_name: fullName,
-              role: "patient",
-            });
-
-          if (profileError) {
-            console.log("Profile creation error:", profileError);
-          }
-
-          setSuccessMessage(
-            "Account created successfully. You can now sign in.",
-          );
-          setIsLogin(true);
-          setFullName("");
-        }
+      if (error) {
+        Alert.alert("Login Failed", error.message);
+        return;
       }
-    } catch {
-      setErrorMessage("Something went wrong. Please try again.");
+
+      router.replace("/(tabs)");
+    } catch (error) {
+      Alert.alert(
+        "Login Failed",
+        error instanceof Error ? error.message : "Something went wrong.",
+      );
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
+  };
+
+  const continueAsDemoUser = () => {
+    router.replace("/(tabs)");
   };
 
   return (
     <KeyboardAvoidingView
-      style={styles.screen}
+      style={styles.keyboardView}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.logoCircle}>
+          <Ionicons name="medical" size={62} color="#2563eb" />
+        </View>
+
         <Text style={styles.appName}>MEDCO</Text>
-        <Text style={styles.tagline}>AI-Powered Medication Manager</Text>
+
+        <Text style={styles.subtitle}>
+          Medication reminder, prescription scanning, chatbot guidance, and
+          adherence tracking.
+        </Text>
 
         <View style={styles.card}>
-          <Text style={styles.formTitle}>
-            {isLogin ? "Sign In" : "Create Account"}
+          <Text style={styles.cardTitle}>Welcome Back</Text>
+
+          <Text style={styles.cardSubtitle}>
+            Sign in to continue using live backend features.
           </Text>
 
-          {!isLogin && (
-            <>
-              <Text style={styles.label}>Full Name</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter your full name"
-                placeholderTextColor="#94a3b8"
-                value={fullName}
-                onChangeText={setFullName}
-                autoCapitalize="words"
-              />
-            </>
-          )}
-
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="you@example.com"
-            placeholderTextColor="#94a3b8"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
+          <Text style={styles.label}>Email Address</Text>
+          <View style={styles.inputBox}>
+            <Ionicons name="mail-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="Enter your email"
+              placeholderTextColor="#94a3b8"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              style={styles.input}
+            />
+          </View>
 
           <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter password"
-            placeholderTextColor="#94a3b8"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-
-          {errorMessage !== "" && (
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          )}
-
-          {successMessage !== "" && (
-            <Text style={styles.successText}>{successMessage}</Text>
-          )}
+          <View style={styles.inputBox}>
+            <Ionicons name="lock-closed-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter your password"
+              placeholderTextColor="#94a3b8"
+              secureTextEntry={!isPasswordVisible}
+              style={styles.input}
+            />
+            <TouchableOpacity
+              onPress={() => setIsPasswordVisible((current) => !current)}
+            >
+              <Ionicons
+                name={isPasswordVisible ? "eye-outline" : "eye-off-outline"}
+                size={22}
+                color="#64748b"
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
-            style={styles.authButton}
-            onPress={handleAuth}
-            disabled={loading}
+            style={styles.signInButton}
+            onPress={signIn}
+            disabled={isLoading}
           >
-            {loading ? (
+            {isLoading ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <Text style={styles.authButtonText}>
-                {isLogin ? "Sign In" : "Create Account"}
-              </Text>
+              <Text style={styles.signInButtonText}>Sign In</Text>
             )}
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => {
-              setIsLogin(!isLogin);
-              setErrorMessage("");
-              setSuccessMessage("");
-            }}
+            style={styles.demoButton}
+            onPress={continueAsDemoUser}
+            disabled={isLoading}
           >
-            <Text style={styles.switchText}>
-              {isLogin
-                ? "No account? Create one"
-                : "Already have an account? Sign in"}
-            </Text>
+            <Text style={styles.demoButtonText}>Continue as Demo User</Text>
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.disclaimer}>
-          MEDCO is for educational use only. Not a substitute for medical
-          advice.
-        </Text>
+        <View style={styles.warningBox}>
+          <Ionicons name="alert-circle" size={22} color="#b45309" />
+          <Text style={styles.warningText}>
+            MEDCO provides general medication support only and does not replace
+            professional medical advice.
+          </Text>
+        </View>
+
+        <View style={styles.bottomSpace} />
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  keyboardView: {
     flex: 1,
-    backgroundColor: "#f0f4ff",
+    backgroundColor: "#f8fafc",
   },
   container: {
-    flexGrow: 1,
+    flex: 1,
+    backgroundColor: "#f8fafc",
+  },
+  content: {
+    paddingHorizontal: 24,
+    paddingTop: 78,
+  },
+  logoCircle: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    backgroundColor: "#dbeafe",
+    alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    alignSelf: "center",
+    marginBottom: 26,
   },
   appName: {
     fontSize: 42,
-    fontWeight: "bold",
-    color: "#2563eb",
+    fontWeight: "900",
+    color: "#0f172a",
     textAlign: "center",
   },
-  tagline: {
-    fontSize: 15,
+  subtitle: {
+    fontSize: 18,
     color: "#64748b",
     textAlign: "center",
-    marginBottom: 32,
-    marginTop: 4,
+    lineHeight: 28,
+    marginTop: 12,
+    marginBottom: 40,
   },
   card: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 28,
     padding: 24,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
+    shadowColor: "#000000",
+    shadowOpacity: 0.05,
     shadowRadius: 12,
-    elevation: 4,
+    elevation: 2,
   },
-  formTitle: {
-    fontSize: 22,
-    fontWeight: "bold",
+  cardTitle: {
+    fontSize: 30,
+    fontWeight: "900",
     color: "#0f172a",
+  },
+  cardSubtitle: {
+    fontSize: 16,
+    color: "#64748b",
+    marginTop: 8,
     marginBottom: 20,
+    lineHeight: 23,
   },
   label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    borderRadius: 12,
-    padding: 14,
     fontSize: 15,
-    color: "#0f172a",
+    fontWeight: "800",
+    color: "#334155",
+    marginBottom: 8,
+  },
+  inputBox: {
+    minHeight: 58,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#dbe3ef",
+    backgroundColor: "#f8fafc",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
     marginBottom: 16,
   },
-  errorText: {
-    color: "#dc2626",
-    fontSize: 13,
-    marginBottom: 12,
-  },
-  successText: {
-    color: "#16a34a",
-    fontSize: 13,
-    marginBottom: 12,
-  },
-  authButton: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 15,
-    borderRadius: 14,
-    alignItems: "center",
-    marginBottom: 14,
-    marginTop: 4,
-  },
-  authButtonText: {
-    color: "#ffffff",
-    fontWeight: "bold",
+  input: {
+    flex: 1,
     fontSize: 16,
+    color: "#0f172a",
+    marginLeft: 10,
   },
-  switchText: {
-    textAlign: "center",
+  signInButton: {
+    height: 62,
+    borderRadius: 18,
+    backgroundColor: "#2563eb",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+  signInButtonText: {
+    color: "#ffffff",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  demoButton: {
+    height: 58,
+    borderRadius: 18,
+    backgroundColor: "#e2e8f0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+  },
+  demoButtonText: {
     color: "#2563eb",
-    fontWeight: "600",
-    fontSize: 14,
+    fontSize: 17,
+    fontWeight: "900",
   },
-  disclaimer: {
-    textAlign: "center",
-    color: "#94a3b8",
-    fontSize: 12,
-    marginTop: 24,
-    lineHeight: 18,
+  warningBox: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 22,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: 28,
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#92400e",
+    fontWeight: "700",
+  },
+  bottomSpace: {
+    height: 50,
   },
 });

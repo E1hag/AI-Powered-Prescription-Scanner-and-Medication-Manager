@@ -1,8 +1,8 @@
-import { supabase } from '@/src/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/src/lib/supabase';
 
 export const authService = {
   async signInWithPassword(email: string, password: string) {
-    if (!supabase) {
+    if (!isSupabaseConfigured()) {
       throw new Error('Supabase is not configured in the app environment.');
     }
 
@@ -17,7 +17,7 @@ export const authService = {
   },
 
   async signOut() {
-    if (!supabase) {
+    if (!isSupabaseConfigured()) {
       return;
     }
 
