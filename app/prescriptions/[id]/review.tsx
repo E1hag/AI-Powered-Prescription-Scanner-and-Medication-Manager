@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,10 @@ import {
 
 import { usePrescriptionDraft } from "@/src/features/prescriptions/hooks/use-prescription-draft";
 import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
+import {
+  DrugInteractionRecord,
+  findAllDrugInteractions,
+} from "@/src/features/prescriptions/utils/drug-interactions";
 
 type MedicationConfidence = "High" | "Medium" | "Low";
 
@@ -114,6 +118,39 @@ function normalizeMedication(
   };
 }
 
+function capitalizeWord(value: string): string {
+  if (!value) {
+    return value;
+  }
+
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function buildInteractionAlertMessage(
+  interactions: DrugInteractionRecord[],
+): string {
+  return interactions
+    .map((interaction, index) => {
+      return [
+        `${index + 1}. ${capitalizeWord(interaction.drugA)} + ${capitalizeWord(interaction.drugB)}`,
+        `Severity: ${interaction.severity}`,
+        `Description: ${interaction.description}`,
+        `Recommendation: ${interaction.recommendation}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+function showDrugInteractionAlert(interactions: DrugInteractionRecord[]) {
+  Alert.alert(
+    interactions.length === 1
+      ? "Drug Interaction Detected"
+      : `${interactions.length} Drug Interactions Detected`,
+    buildInteractionAlertMessage(interactions),
+    [{ text: "Dismiss", style: "cancel" }],
+  );
+}
+
 function getMedicationsFromParams(
   medicationsParam?: string,
 ): MedicationResult[] {
@@ -184,6 +221,31 @@ export default function ReviewPrescriptionScreen() {
   );
 
   const [isSaving, setIsSaving] = useState(false);
+
+  const hasCheckedInteractionsRef = useRef(false);
+
+  useEffect(() => {
+    if (hasCheckedInteractionsRef.current) {
+      return;
+    }
+
+    if (isDraftLoading || medications.length === 0) {
+      return;
+    }
+
+    hasCheckedInteractionsRef.current = true;
+
+    const allIngredients = medications.flatMap((medication) => [
+      medication.ingredientA,
+      medication.ingredientB,
+    ]);
+
+    const interactions = findAllDrugInteractions(allIngredients);
+
+    if (interactions.length > 0) {
+      showDrugInteractionAlert(interactions);
+    }
+  }, [medications, isDraftLoading]);
 
   useEffect(() => {
     if (medicationsFromParams.length > 0) {

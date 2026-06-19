@@ -59,10 +59,6 @@ export default function LoginScreen() {
     }
   };
 
-  const continueAsDemoUser = () => {
-    router.replace("/(tabs)");
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.keyboardView}
@@ -140,11 +136,13 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.demoButton}
-            onPress={continueAsDemoUser}
+            style={styles.switchLink}
+            onPress={() => router.replace("/register")}
             disabled={isLoading}
           >
-            <Text style={styles.demoButtonText}>Continue as Demo User</Text>
+            <Text style={styles.switchLinkText}>
+              Don't have an account? Sign Up
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -256,18 +254,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
   },
-  demoButton: {
-    height: 58,
-    borderRadius: 18,
-    backgroundColor: "#e2e8f0",
+  switchLink: {
     alignItems: "center",
-    justifyContent: "center",
-    marginTop: 14,
+    marginTop: 18,
   },
-  demoButtonText: {
+  switchLinkText: {
     color: "#2563eb",
-    fontSize: 17,
-    fontWeight: "900",
+    fontSize: 15,
+    fontWeight: "700",
   },
   warningBox: {
     backgroundColor: "#fef3c7",
