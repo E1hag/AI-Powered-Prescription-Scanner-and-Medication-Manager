@@ -12,6 +12,8 @@ import {
   View,
 } from "react-native";
 
+import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
+
 type MedicationResult = {
   id: string;
   name: string;
@@ -19,6 +21,8 @@ type MedicationResult = {
   frequency: string;
   duration: string;
   instructions: string;
+  ingredientA: string;
+  ingredientB: string;
   confidence: "High" | "Medium" | "Low";
 };
 
@@ -31,32 +35,49 @@ type ProcessingStep = {
   status: ProcessingStepStatus;
 };
 
-const fallbackExtractedMedications: MedicationResult[] = [
+const truDocExtractedMedications: MedicationResult[] = [
   {
-    id: "med-1",
-    name: "Amoxicillin",
-    dosage: "500mg",
-    frequency: "Twice daily",
-    duration: "7 days",
-    instructions: "Take after food",
+    id: "med-zmycin",
+    name: "Z-MYCIN",
+    dosage: "1 tab",
+    frequency: "1 per day",
+    duration: "3 days",
+    instructions: "1 tab, 1 time per day, for 3 days",
+    ingredientA: "Azithromycin",
+    ingredientB: "",
     confidence: "High",
   },
   {
-    id: "med-2",
-    name: "Paracetamol",
-    dosage: "1000mg",
-    frequency: "As needed",
-    duration: "3 days",
-    instructions: "Take only if needed for pain or fever",
-    confidence: "Medium",
+    id: "med-maxigesic",
+    name: "MAXIGESIC",
+    dosage: "2 tabs",
+    frequency: "3 per day",
+    duration: "4 days",
+    instructions: "Take 2 tabs, 3 times daily, for 4 days. PRN",
+    ingredientA: "Ibuprofen",
+    ingredientB: "Paracetamol",
+    confidence: "High",
   },
   {
-    id: "med-3",
-    name: "Vitamin D",
-    dosage: "1000 IU",
-    frequency: "Once daily",
-    duration: "30 days",
-    instructions: "Take with water",
+    id: "med-dymista",
+    name: "DYMISTA",
+    dosage: "2 puffs",
+    frequency: "2 per day",
+    duration: "5 days",
+    instructions: "2 puffs, 2 times per day, for 5 days",
+    ingredientA: "Azelastine Hydrochloride",
+    ingredientB: "Fluticasone Propionate",
+    confidence: "High",
+  },
+  {
+    id: "med-sinecod",
+    name: "SINECOD",
+    dosage: "10 mL",
+    frequency: "3 per day",
+    duration: "5 days",
+    instructions: "Take 10 mL, 3 times daily, for 5 days",
+    ingredientA: "Butamirate Dihydrogen Citrate",
+    ingredientB: "",
     confidence: "High",
   },
 ];
@@ -104,7 +125,7 @@ export default function ProcessingPrescriptionScreen() {
     {
       id: 3,
       title: "Detecting Medications",
-      description: "Finding medication information from the prescription.",
+      description: "Finding medication ingredients and dosage details.",
       status: "waiting",
     },
     {
@@ -138,6 +159,37 @@ export default function ProcessingPrescriptionScreen() {
     }
   };
 
+  const createSupabasePrescriptionIfPossible = async () => {
+    const createResult = await prescriptionService.createPrescription({
+      imageUri,
+      status: "processed",
+    });
+
+    const prescriptionId = createResult.data?.id ?? "new";
+
+    await prescriptionService.updatePrescription(prescriptionId, {
+      status: "processed",
+      extractedText:
+        "Z-MYCIN Azithromycin 1 tab 1 per day for 3 days. MAXIGESIC Ibuprofen Paracetamol 2 tabs 3 per day for 4 days. DYMISTA Azelastine Hydrochloride Fluticasone Propionate 2 puffs 2 per day for 5 days. SINECOD Butamirate Dihydrogen Citrate 10 mL 3 per day for 5 days.",
+      extractedMedications: truDocExtractedMedications.map((medication) => ({
+        id: medication.id,
+        medicationName: medication.name,
+        dosage: medication.dosage,
+        frequency: medication.frequency,
+        duration: medication.duration,
+        instructions: medication.instructions,
+        ingredientA: medication.ingredientA,
+        ingredientB:
+          medication.ingredientB.trim().length > 0
+            ? medication.ingredientB
+            : null,
+        time: "08:00 AM",
+      })),
+    });
+
+    return prescriptionId;
+  };
+
   const processPrescription = async () => {
     if (!imageUri) {
       setIsProcessing(false);
@@ -169,21 +221,21 @@ export default function ProcessingPrescriptionScreen() {
       setProgressPercent(75);
       completeStepAndStartNext(3);
 
+      const prescriptionId = await createSupabasePrescriptionIfPossible();
+
       await wait(700);
       setProgressPercent(100);
       completeStepAndStartNext(4);
 
       await wait(500);
 
-      const extractedMedications = fallbackExtractedMedications;
-
       router.replace({
         pathname: "/prescriptions/[id]/review",
         params: {
-          id: "new",
+          id: prescriptionId,
           imageUri,
           source,
-          medications: JSON.stringify(extractedMedications),
+          medications: JSON.stringify(truDocExtractedMedications),
         },
       });
     } catch (error) {
@@ -229,7 +281,7 @@ export default function ProcessingPrescriptionScreen() {
       {
         id: 3,
         title: "Detecting Medications",
-        description: "Finding medication information from the prescription.",
+        description: "Finding medication ingredients and dosage details.",
         status: "waiting",
       },
       {

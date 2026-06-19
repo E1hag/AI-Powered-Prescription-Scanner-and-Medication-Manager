@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -7,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -22,22 +20,12 @@ type UploadMeta = {
   uri: string;
 };
 
-const isRunningOnIosSimulator = Platform.OS === "ios" && !Constants.isDevice;
-
 export default function NewPrescriptionScreen() {
   const [selectedImageUri, setSelectedImageUri] = useState<string | null>(null);
   const [uploadMeta, setUploadMeta] = useState<UploadMeta | null>(null);
   const [isPickingImage, setIsPickingImage] = useState(false);
 
   const openCamera = async () => {
-    if (isRunningOnIosSimulator) {
-      Alert.alert(
-        "Camera Not Available",
-        "The iOS Simulator does not have a real camera. Please use Upload Prescription on the simulator, or run the app on a real iPhone to use the camera.",
-      );
-      return;
-    }
-
     try {
       setIsPickingImage(true);
 
@@ -74,7 +62,7 @@ export default function NewPrescriptionScreen() {
         "Camera Error",
         error instanceof Error
           ? error.message
-          : "Unable to open camera. Please try uploading from library instead.",
+          : "Unable to open camera. If you are using the simulator, use Upload Prescription instead. If you are using a real iPhone, check camera permission.",
       );
     } finally {
       setIsPickingImage(false);
@@ -177,21 +165,19 @@ export default function NewPrescriptionScreen() {
         </View>
       </View>
 
-      {isRunningOnIosSimulator && (
-        <View style={styles.simulatorCard}>
-          <View style={styles.simulatorIconCircle}>
-            <Ionicons name="phone-portrait-outline" size={17} color="#b45309" />
-          </View>
-
-          <View style={styles.infoTextBox}>
-            <Text style={styles.simulatorTitle}>Simulator Mode</Text>
-            <Text style={styles.simulatorText}>
-              Camera is not available on the iOS Simulator. Use Upload
-              Prescription here, or test camera on a real iPhone.
-            </Text>
-          </View>
+      <View style={styles.realPhoneCard}>
+        <View style={styles.realPhoneIconCircle}>
+          <Ionicons name="phone-portrait-outline" size={17} color="#166534" />
         </View>
-      )}
+
+        <View style={styles.infoTextBox}>
+          <Text style={styles.realPhoneTitle}>Camera Ready</Text>
+          <Text style={styles.realPhoneText}>
+            On a real iPhone, you can use the camera. On the iOS simulator, use
+            Upload Prescription instead.
+          </Text>
+        </View>
+      </View>
 
       <View style={styles.uploadCard}>
         <View style={styles.uploadIconCircle}>
@@ -209,10 +195,7 @@ export default function NewPrescriptionScreen() {
         </Text>
 
         <Pressable
-          style={[
-            styles.cameraButton,
-            isRunningOnIosSimulator && styles.cameraButtonDisabled,
-          ]}
+          style={styles.cameraButton}
           onPress={openCamera}
           disabled={isPickingImage}
         >
@@ -366,32 +349,32 @@ const styles = StyleSheet.create({
     color: "#1e40af",
     fontWeight: "600",
   },
-  simulatorCard: {
+  realPhoneCard: {
     flexDirection: "row",
-    backgroundColor: "#fef3c7",
+    backgroundColor: "#dcfce7",
     borderRadius: 20,
     padding: 14,
     marginBottom: 14,
   },
-  simulatorIconCircle: {
+  realPhoneIconCircle: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#fde68a",
+    backgroundColor: "#bbf7d0",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
   },
-  simulatorTitle: {
+  realPhoneTitle: {
     fontSize: 16,
     fontWeight: "900",
-    color: "#92400e",
+    color: "#166534",
     marginBottom: 3,
   },
-  simulatorText: {
+  realPhoneText: {
     fontSize: 13.5,
     lineHeight: 20,
-    color: "#92400e",
+    color: "#166534",
     fontWeight: "600",
   },
   uploadCard: {
@@ -444,9 +427,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 9,
     marginBottom: 10,
-  },
-  cameraButtonDisabled: {
-    backgroundColor: "#93c5fd",
   },
   cameraButtonText: {
     fontSize: 15,

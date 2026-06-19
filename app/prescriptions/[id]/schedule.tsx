@@ -24,11 +24,18 @@ type MedicationConfidence = "High" | "Medium" | "Low";
 type MedicationResult = {
   id: string;
   name: string;
+  medicationName?: string;
+  medication_name?: string;
   dosage: string;
-  frequency: string;
-  duration: string;
-  instructions: string;
-  confidence: MedicationConfidence;
+  frequency?: string;
+  duration?: string;
+  instructions?: string;
+  instruction?: string;
+  ingredientA?: string;
+  ingredientB?: string | null;
+  ingredient_a?: string;
+  ingredient_b?: string | null;
+  confidence?: MedicationConfidence;
 };
 
 type ScheduleDose = MedicationDose;
@@ -41,18 +48,83 @@ type StoredMedicationSchedule = {
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
 
+function safeText(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  return String(value);
+}
+
+function getMedicationName(medication: MedicationResult) {
+  return (
+    safeText(medication.name).trim() ||
+    safeText(medication.medicationName).trim() ||
+    safeText(medication.medication_name).trim() ||
+    "Unnamed Medication"
+  );
+}
+
+function getMedicationInstruction(medication: MedicationResult) {
+  return (
+    safeText(medication.instructions).trim() ||
+    safeText(medication.instruction).trim() ||
+    "Follow prescription instructions"
+  );
+}
+
+function normalizeParsedMedication(
+  medication: Partial<MedicationResult>,
+  index: number,
+): MedicationResult {
+  const medicationName =
+    safeText(medication.name).trim() ||
+    safeText(medication.medicationName).trim() ||
+    safeText(medication.medication_name).trim();
+
+  return {
+    id: safeText(medication.id).trim() || `med-${index + 1}`,
+    name: medicationName || `Medication ${index + 1}`,
+    medicationName: medicationName || `Medication ${index + 1}`,
+    medication_name: medicationName || `Medication ${index + 1}`,
+    dosage: safeText(medication.dosage).trim(),
+    frequency: safeText(medication.frequency).trim(),
+    duration: safeText(medication.duration).trim(),
+    instructions: getMedicationInstruction(medication as MedicationResult),
+    instruction: getMedicationInstruction(medication as MedicationResult),
+    ingredientA:
+      safeText(medication.ingredientA).trim() ||
+      safeText(medication.ingredient_a).trim(),
+    ingredientB:
+      safeText(medication.ingredientB).trim() ||
+      safeText(medication.ingredient_b).trim() ||
+      null,
+    ingredient_a:
+      safeText(medication.ingredientA).trim() ||
+      safeText(medication.ingredient_a).trim(),
+    ingredient_b:
+      safeText(medication.ingredientB).trim() ||
+      safeText(medication.ingredient_b).trim() ||
+      null,
+    confidence: medication.confidence ?? "High",
+  };
+}
+
 function buildDefaultSchedule(medications: MedicationResult[]): ScheduleDose[] {
   const defaultTimes = ["08:00 AM", "02:00 PM", "08:00 PM", "10:00 PM"];
 
   return medications.map((medication, index) => {
+    const medicationName = getMedicationName(medication);
+    const dosage = safeText(medication.dosage).trim();
+    const instruction = getMedicationInstruction(medication);
+
     return {
-      id: `dose-${medication.id}-${Date.now()}-${index}`,
-      medicationId: medication.id,
-      medicationName: medication.name,
-      dosage: medication.dosage,
+      id: `dose-${safeText(medication.id) || index}-${Date.now()}-${index}`,
+      medicationId: safeText(medication.id) || `med-${index + 1}`,
+      medicationName,
+      dosage,
       time: defaultTimes[index] ?? "08:00 AM",
-      instruction:
-        medication.instructions || "Follow prescription instructions",
+      instruction,
       status: "Pending",
     };
   });
@@ -75,7 +147,9 @@ export default function SchedulePrescriptionScreen() {
       const parsed = JSON.parse(params.medications);
 
       if (Array.isArray(parsed)) {
-        return parsed as MedicationResult[];
+        return parsed.map((item, index) =>
+          normalizeParsedMedication(item, index),
+        );
       }
 
       return [];
@@ -119,9 +193,9 @@ export default function SchedulePrescriptionScreen() {
       return false;
     }
 
-    const hasMissingName = scheduleDoses.some(
-      (dose) => dose.medicationName.trim().length === 0,
-    );
+    const hasMissingName = scheduleDoses.some((dose) => {
+      return safeText(dose.medicationName).trim().length === 0;
+    });
 
     if (hasMissingName) {
       Alert.alert(
@@ -132,9 +206,9 @@ export default function SchedulePrescriptionScreen() {
       return false;
     }
 
-    const hasMissingDosage = scheduleDoses.some(
-      (dose) => dose.dosage.trim().length === 0,
-    );
+    const hasMissingDosage = scheduleDoses.some((dose) => {
+      return safeText(dose.dosage).trim().length === 0;
+    });
 
     if (hasMissingDosage) {
       Alert.alert(
@@ -145,9 +219,9 @@ export default function SchedulePrescriptionScreen() {
       return false;
     }
 
-    const hasMissingTime = scheduleDoses.some(
-      (dose) => dose.time.trim().length === 0,
-    );
+    const hasMissingTime = scheduleDoses.some((dose) => {
+      return safeText(dose.time).trim().length === 0;
+    });
 
     if (hasMissingTime) {
       Alert.alert(
@@ -169,14 +243,19 @@ export default function SchedulePrescriptionScreen() {
     try {
       setIsSaving(true);
 
-      const cleanedDoses: ScheduleDose[] = scheduleDoses.map((dose) => {
+      const cleanedDoses: ScheduleDose[] = scheduleDoses.map((dose, index) => {
         return {
           ...dose,
-          medicationName: dose.medicationName.trim(),
-          dosage: dose.dosage.trim(),
-          time: dose.time.trim(),
+          id: safeText(dose.id).trim() || `dose-${Date.now()}-${index}`,
+          medicationId:
+            safeText(dose.medicationId).trim() || `medication-${index + 1}`,
+          medicationName:
+            safeText(dose.medicationName).trim() || `Medication ${index + 1}`,
+          dosage: safeText(dose.dosage).trim(),
+          time: safeText(dose.time).trim(),
           instruction:
-            dose.instruction.trim() || "Follow prescription instructions",
+            safeText(dose.instruction).trim() ||
+            "Follow prescription instructions",
           status: "Pending",
         };
       });
@@ -222,14 +301,17 @@ export default function SchedulePrescriptionScreen() {
   };
 
   const addExtraDose = (medication: MedicationResult) => {
+    const medicationName = getMedicationName(medication);
+    const dosage = safeText(medication.dosage).trim();
+    const instruction = getMedicationInstruction(medication);
+
     const newDose: ScheduleDose = {
-      id: `dose-${medication.id}-${Date.now()}`,
-      medicationId: medication.id,
-      medicationName: medication.name,
-      dosage: medication.dosage,
+      id: `dose-${safeText(medication.id) || Date.now()}-${Date.now()}`,
+      medicationId: safeText(medication.id) || `med-${Date.now()}`,
+      medicationName,
+      dosage,
       time: "08:00 PM",
-      instruction:
-        medication.instructions || "Follow prescription instructions",
+      instruction,
       status: "Pending",
     };
 
@@ -331,8 +413,13 @@ export default function SchedulePrescriptionScreen() {
               </View>
 
               <View style={styles.doseHeaderTextBox}>
-                <Text style={styles.medicationName}>{dose.medicationName}</Text>
-                <Text style={styles.medicationDosage}>{dose.dosage}</Text>
+                <Text style={styles.medicationName}>
+                  {safeText(dose.medicationName).trim() ||
+                    `Medication ${index + 1}`}
+                </Text>
+                <Text style={styles.medicationDosage}>
+                  {safeText(dose.dosage).trim() || "No dosage"}
+                </Text>
               </View>
 
               <View style={styles.pendingBadge}>
@@ -343,7 +430,7 @@ export default function SchedulePrescriptionScreen() {
             <Text style={styles.inputLabel}>Dose Time</Text>
             <TextInput
               style={styles.input}
-              value={dose.time}
+              value={safeText(dose.time)}
               onChangeText={(value) => updateDoseField(dose.id, "time", value)}
               placeholder="Example: 08:00 AM"
               placeholderTextColor="#94a3b8"
@@ -352,7 +439,7 @@ export default function SchedulePrescriptionScreen() {
             <Text style={styles.inputLabel}>Instruction</Text>
             <TextInput
               style={[styles.input, styles.multilineInput]}
-              value={dose.instruction}
+              value={safeText(dose.instruction)}
               onChangeText={(value) =>
                 updateDoseField(dose.id, "instruction", value)
               }
@@ -383,15 +470,15 @@ export default function SchedulePrescriptionScreen() {
                 per day.
               </Text>
 
-              {parsedMedications.map((medication) => (
+              {parsedMedications.map((medication, index) => (
                 <Pressable
-                  key={medication.id}
+                  key={`${medication.id}-${index}`}
                   style={styles.extraDoseButton}
                   onPress={() => addExtraDose(medication)}
                 >
                   <Ionicons name="add-circle" size={18} color="#2563eb" />
                   <Text style={styles.extraDoseButtonText}>
-                    Add dose for {medication.name}
+                    Add dose for {getMedicationName(medication)}
                   </Text>
                 </Pressable>
               ))}

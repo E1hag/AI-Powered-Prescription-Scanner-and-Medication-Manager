@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   KeyboardAvoidingView,
@@ -14,6 +15,7 @@ import {
   View,
 } from "react-native";
 
+import { usePrescriptionDraft } from "@/src/features/prescriptions/hooks/use-prescription-draft";
 import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
 
 type MedicationConfidence = "High" | "Medium" | "Low";
@@ -30,9 +32,9 @@ type MedicationResult = {
   confidence: MedicationConfidence;
 };
 
-const defaultMedications: MedicationResult[] = [
+const fallbackMedications: MedicationResult[] = [
   {
-    id: "med-1",
+    id: "fallback-1",
     name: "Amoxicillin",
     dosage: "500mg",
     frequency: "Twice daily",
@@ -40,28 +42,6 @@ const defaultMedications: MedicationResult[] = [
     instructions: "Take after food",
     ingredientA: "Amoxicillin",
     ingredientB: "",
-    confidence: "High",
-  },
-  {
-    id: "med-2",
-    name: "MAXIGESIC",
-    dosage: "2 tabs",
-    frequency: "3 per day",
-    duration: "4 days",
-    instructions: "Take only if needed for pain or fever",
-    ingredientA: "Ibuprofen",
-    ingredientB: "Paracetamol",
-    confidence: "Medium",
-  },
-  {
-    id: "med-3",
-    name: "DYMISTA",
-    dosage: "2 puffs",
-    frequency: "2 per day",
-    duration: "5 days",
-    instructions: "Use as directed",
-    ingredientA: "Azelastine Hydrochloride",
-    ingredientB: "Fluticasone Propionate",
     confidence: "High",
   },
 ];
@@ -72,30 +52,35 @@ function normalizeMedication(
 ): MedicationResult {
   return {
     id: String(rawMedication?.id ?? `med-${index + 1}`),
+
     name: String(
       rawMedication?.name ??
         rawMedication?.medicationName ??
         rawMedication?.medication_name ??
         "",
     ),
+
     dosage: String(
       rawMedication?.dosage ??
         rawMedication?.dosageText ??
         rawMedication?.dosage_text ??
         "",
     ),
+
     frequency: String(
       rawMedication?.frequency ??
         rawMedication?.frequencyText ??
         rawMedication?.frequency_text ??
         "",
     ),
+
     duration: String(
       rawMedication?.duration ??
         rawMedication?.durationText ??
         rawMedication?.duration_text ??
         "",
     ),
+
     instructions: String(
       rawMedication?.instructions ??
         rawMedication?.instruction ??
@@ -103,6 +88,7 @@ function normalizeMedication(
         rawMedication?.instruction_text ??
         "",
     ),
+
     ingredientA: String(
       rawMedication?.ingredientA ??
         rawMedication?.ingredient_a ??
@@ -110,6 +96,7 @@ function normalizeMedication(
         rawMedication?.substance_a ??
         "",
     ),
+
     ingredientB: String(
       rawMedication?.ingredientB ??
         rawMedication?.ingredient_b ??
@@ -117,13 +104,34 @@ function normalizeMedication(
         rawMedication?.substance_b ??
         "",
     ),
+
     confidence:
       rawMedication?.confidence === "High" ||
       rawMedication?.confidence === "Medium" ||
       rawMedication?.confidence === "Low"
         ? rawMedication.confidence
-        : "Medium",
+        : "High",
   };
+}
+
+function getMedicationsFromParams(
+  medicationsParam?: string,
+): MedicationResult[] {
+  if (typeof medicationsParam !== "string") {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(medicationsParam);
+
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((item, index) => normalizeMedication(item, index));
+    }
+
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export default function ReviewPrescriptionScreen() {
@@ -158,28 +166,44 @@ export default function ReviewPrescriptionScreen() {
     return "library";
   }, [params.source]);
 
-  const parsedMedications = useMemo(() => {
-    if (typeof params.medications !== "string") {
-      return defaultMedications;
-    }
-
-    try {
-      const parsed = JSON.parse(params.medications);
-
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.map((item, index) => normalizeMedication(item, index));
-      }
-
-      return defaultMedications;
-    } catch {
-      return defaultMedications;
-    }
+  const medicationsFromParams = useMemo(() => {
+    return getMedicationsFromParams(params.medications);
   }, [params.medications]);
 
-  const [medications, setMedications] =
-    useState<MedicationResult[]>(parsedMedications);
+  const shouldLoadFromSupabase =
+    medicationsFromParams.length === 0 && prescriptionId !== "new";
+
+  const {
+    data: reviewDraft,
+    isLoading: isDraftLoading,
+    error: draftError,
+  } = usePrescriptionDraft(shouldLoadFromSupabase ? prescriptionId : "");
+
+  const [medications, setMedications] = useState<MedicationResult[]>(
+    medicationsFromParams.length > 0 ? medicationsFromParams : [],
+  );
 
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (medicationsFromParams.length > 0) {
+      setMedications(medicationsFromParams);
+      return;
+    }
+
+    if (!shouldLoadFromSupabase) {
+      setMedications(fallbackMedications);
+      return;
+    }
+
+    if (reviewDraft?.medications && reviewDraft.medications.length > 0) {
+      const normalized = reviewDraft.medications.map((item, index) =>
+        normalizeMedication(item, index),
+      );
+
+      setMedications(normalized);
+    }
+  }, [medicationsFromParams, reviewDraft, shouldLoadFromSupabase]);
 
   const updateMedicationField = (
     medicationId: string,
@@ -330,6 +354,8 @@ export default function ReviewPrescriptionScreen() {
     return styles.lowConfidenceText;
   };
 
+  const isLoadingRealData = shouldLoadFromSupabase && isDraftLoading;
+
   return (
     <KeyboardAvoidingView
       style={styles.keyboardContainer}
@@ -369,6 +395,16 @@ export default function ReviewPrescriptionScreen() {
           </View>
         </View>
 
+        {draftError ? (
+          <View style={styles.errorCard}>
+            <Ionicons name="warning" size={18} color="#b45309" />
+            <Text style={styles.errorText}>
+              Could not load Supabase extracted rows. Showing available local
+              data.
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.noticeCard}>
           <View style={styles.noticeIcon}>
             <Ionicons name="create" size={18} color="#2563eb" />
@@ -390,125 +426,144 @@ export default function ReviewPrescriptionScreen() {
           </Pressable>
         </View>
 
-        {medications.map((medication, index) => (
-          <View key={medication.id} style={styles.medicationCard}>
-            <View style={styles.medicationHeader}>
-              <View>
-                <Text style={styles.medicationNumber}>
-                  Medication {index + 1}
-                </Text>
-                <Text style={styles.medicationHint}>
-                  Edit the fields if needed.
-                </Text>
-              </View>
+        {isLoadingRealData ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="small" color="#2563eb" />
+            <Text style={styles.loadingText}>
+              Loading extracted medications from Supabase...
+            </Text>
+          </View>
+        ) : null}
 
-              <View style={styles.headerRight}>
-                <View
-                  style={[
-                    styles.confidenceBadge,
-                    getConfidenceStyle(medication.confidence),
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.confidenceText,
-                      getConfidenceTextStyle(medication.confidence),
-                    ]}
-                  >
-                    {medication.confidence}
+        {!isLoadingRealData && medications.length === 0 ? (
+          <View style={styles.loadingCard}>
+            <Ionicons name="document-text" size={28} color="#2563eb" />
+            <Text style={styles.loadingText}>
+              No extracted medications found for this prescription.
+            </Text>
+          </View>
+        ) : null}
+
+        {!isLoadingRealData &&
+          medications.map((medication, index) => (
+            <View key={medication.id} style={styles.medicationCard}>
+              <View style={styles.medicationHeader}>
+                <View>
+                  <Text style={styles.medicationNumber}>
+                    Medication {index + 1}
+                  </Text>
+                  <Text style={styles.medicationHint}>
+                    Edit the fields if needed.
                   </Text>
                 </View>
 
-                <Pressable
-                  style={styles.deleteButton}
-                  onPress={() => removeMedication(medication.id)}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
-                </Pressable>
+                <View style={styles.headerRight}>
+                  <View
+                    style={[
+                      styles.confidenceBadge,
+                      getConfidenceStyle(medication.confidence),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.confidenceText,
+                        getConfidenceTextStyle(medication.confidence),
+                      ]}
+                    >
+                      {medication.confidence}
+                    </Text>
+                  </View>
+
+                  <Pressable
+                    style={styles.deleteButton}
+                    onPress={() => removeMedication(medication.id)}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                  </Pressable>
+                </View>
               </View>
+
+              <Text style={styles.inputLabel}>Medicine Name</Text>
+              <TextInput
+                style={styles.input}
+                value={medication.name}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "name", value)
+                }
+                placeholder="Example: MAXIGESIC"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>Ingredient A / Substance 1</Text>
+              <TextInput
+                style={styles.input}
+                value={medication.ingredientA}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "ingredientA", value)
+                }
+                placeholder="Example: Ibuprofen"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>
+                Ingredient B / Substance 2 Optional
+              </Text>
+              <TextInput
+                style={styles.input}
+                value={medication.ingredientB}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "ingredientB", value)
+                }
+                placeholder="Example: Paracetamol"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>Dosage</Text>
+              <TextInput
+                style={styles.input}
+                value={medication.dosage}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "dosage", value)
+                }
+                placeholder="Example: 500mg"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>Frequency</Text>
+              <TextInput
+                style={styles.input}
+                value={medication.frequency}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "frequency", value)
+                }
+                placeholder="Example: Twice daily"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>Duration</Text>
+              <TextInput
+                style={styles.input}
+                value={medication.duration}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "duration", value)
+                }
+                placeholder="Example: 7 days"
+                placeholderTextColor="#94a3b8"
+              />
+
+              <Text style={styles.inputLabel}>Instructions</Text>
+              <TextInput
+                style={[styles.input, styles.multilineInput]}
+                value={medication.instructions}
+                onChangeText={(value) =>
+                  updateMedicationField(medication.id, "instructions", value)
+                }
+                placeholder="Example: Take after food"
+                placeholderTextColor="#94a3b8"
+                multiline
+              />
             </View>
-
-            <Text style={styles.inputLabel}>Medicine Name</Text>
-            <TextInput
-              style={styles.input}
-              value={medication.name}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "name", value)
-              }
-              placeholder="Example: MAXIGESIC"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Ingredient A / Substance 1</Text>
-            <TextInput
-              style={styles.input}
-              value={medication.ingredientA}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "ingredientA", value)
-              }
-              placeholder="Example: Ibuprofen"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>
-              Ingredient B / Substance 2 Optional
-            </Text>
-            <TextInput
-              style={styles.input}
-              value={medication.ingredientB}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "ingredientB", value)
-              }
-              placeholder="Example: Paracetamol"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Dosage</Text>
-            <TextInput
-              style={styles.input}
-              value={medication.dosage}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "dosage", value)
-              }
-              placeholder="Example: 500mg"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Frequency</Text>
-            <TextInput
-              style={styles.input}
-              value={medication.frequency}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "frequency", value)
-              }
-              placeholder="Example: Twice daily"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Duration</Text>
-            <TextInput
-              style={styles.input}
-              value={medication.duration}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "duration", value)
-              }
-              placeholder="Example: 7 days"
-              placeholderTextColor="#94a3b8"
-            />
-
-            <Text style={styles.inputLabel}>Instructions</Text>
-            <TextInput
-              style={[styles.input, styles.multilineInput]}
-              value={medication.instructions}
-              onChangeText={(value) =>
-                updateMedicationField(medication.id, "instructions", value)
-              }
-              placeholder="Example: Take after food"
-              placeholderTextColor="#94a3b8"
-              multiline
-            />
-          </View>
-        ))}
+          ))}
 
         <Pressable style={styles.addButton} onPress={addMedication}>
           <Ionicons name="add-circle" size={20} color="#2563eb" />
@@ -521,7 +576,7 @@ export default function ReviewPrescriptionScreen() {
             isSaving && styles.continueButtonDisabled,
           ]}
           onPress={continueToSchedule}
-          disabled={isSaving}
+          disabled={isSaving || isLoadingRealData}
         >
           <Ionicons name="calendar" size={19} color="#ffffff" />
           <Text style={styles.continueButtonText}>
@@ -639,6 +694,37 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: "#92400e",
     fontWeight: "600",
+  },
+  errorCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fef3c7",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  errorText: {
+    flex: 1,
+    color: "#92400e",
+    fontWeight: "700",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  loadingCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    gap: 10,
+  },
+  loadingText: {
+    color: "#64748b",
+    fontWeight: "700",
+    fontSize: 14,
+    textAlign: "center",
   },
   sectionHeader: {
     flexDirection: "row",
