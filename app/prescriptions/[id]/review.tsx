@@ -36,20 +36,6 @@ type MedicationResult = {
   confidence: MedicationConfidence;
 };
 
-const fallbackMedications: MedicationResult[] = [
-  {
-    id: "fallback-1",
-    name: "Amoxicillin",
-    dosage: "500mg",
-    frequency: "Twice daily",
-    duration: "7 days",
-    instructions: "Take after food",
-    ingredientA: "Amoxicillin",
-    ingredientB: "",
-    confidence: "High",
-  },
-];
-
 function normalizeMedication(
   rawMedication: any,
   index: number,
@@ -254,7 +240,7 @@ export default function ReviewPrescriptionScreen() {
     }
 
     if (!shouldLoadFromSupabase) {
-      setMedications(fallbackMedications);
+      setMedications([]);
       return;
     }
 
@@ -461,8 +447,8 @@ export default function ReviewPrescriptionScreen() {
           <View style={styles.errorCard}>
             <Ionicons name="warning" size={18} color="#b45309" />
             <Text style={styles.errorText}>
-              Could not load Supabase extracted rows. Showing available local
-              data.
+              Could not load the extracted prescription details. Showing
+              available local data.
             </Text>
           </View>
         ) : null}
@@ -492,7 +478,7 @@ export default function ReviewPrescriptionScreen() {
           <View style={styles.loadingCard}>
             <ActivityIndicator size="small" color="#2563eb" />
             <Text style={styles.loadingText}>
-              Loading extracted medications from Supabase...
+              Loading extracted medications...
             </Text>
           </View>
         ) : null}

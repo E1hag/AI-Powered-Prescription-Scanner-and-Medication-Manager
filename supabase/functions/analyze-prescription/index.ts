@@ -1365,6 +1365,14 @@ async function resolveProviderResult(params: {
     Boolean(getEnv('AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT')) &&
     Boolean(getEnv('AZURE_DOCUMENT_INTELLIGENCE_KEY'));
 
+  if (params.useMockData) {
+    return buildMockProviderResult();
+  }
+
+  if (!params.imageBytes) {
+    throw new Error('Prescription image is required for live analysis.');
+  }
+
   if (!params.useMockData && params.imageBytes && googleConfigured) {
     return analyzeWithGoogle(params.imageBytes, params.mimeType ?? 'application/octet-stream');
   }
@@ -1373,7 +1381,7 @@ async function resolveProviderResult(params: {
     return analyzeWithAzure(params.imageBytes, params.mimeType ?? 'application/octet-stream');
   }
 
-  return buildMockProviderResult();
+  throw new Error('Live prescription analysis is not configured.');
 }
 
 Deno.serve(async (request) => {
@@ -1385,10 +1393,11 @@ Deno.serve(async (request) => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders });
   }
 
-  const admin = createAdminClient();
+  let admin: ReturnType<typeof createAdminClient> | null = null;
   let payload: AnalyzeRequest | null = null;
 
   try {
+    admin = createAdminClient();
     payload = (await request.json()) as AnalyzeRequest;
     const accessToken = extractBearerToken(request);
 
@@ -1479,6 +1488,10 @@ Deno.serve(async (request) => {
       }
 
       imageBytes = new Uint8Array(await imageFile.arrayBuffer());
+
+      if (imageBytes.byteLength === 0) {
+        throw new Error('Downloaded prescription image is empty.');
+      }
     }
 
     const providerResult = await resolveProviderResult({
@@ -1496,30 +1509,32 @@ Deno.serve(async (request) => {
     );
     const completedAt = new Date().toISOString();
 
-    const { error: medicationInsertError } = await admin.from('extracted_medications').insert(
-      parsedMedications.map((medication) => ({
-        prescription_id: payload.prescriptionId,
-        extraction_run_id: extractionRunId,
-        position_index: medication.positionIndex,
-        raw_medication_text: medication.rawMedicationText,
-        medication_name: medication.medicationName,
-        strength_text: medication.strengthText,
-        dosage_text: medication.dosageText,
-        frequency_text: medication.frequencyText,
-        timing_text: medication.timingText,
-        duration_text: medication.durationText,
-        start_date_text: medication.startDateText,
-        notes_text: medication.notesText,
-        normalized_fields: medication.normalizedFields,
-        confidence_flags: medication.confidenceFlags,
-        parsing_issues: medication.parsingIssues,
-        review_status: medication.reviewStatus,
-        is_schedule_generatable: medication.isScheduleGeneratable,
-      }))
-    );
+    if (parsedMedications.length > 0) {
+      const { error: medicationInsertError } = await admin.from('extracted_medications').insert(
+        parsedMedications.map((medication) => ({
+          prescription_id: payload.prescriptionId,
+          extraction_run_id: extractionRunId,
+          position_index: medication.positionIndex,
+          raw_medication_text: medication.rawMedicationText,
+          medication_name: medication.medicationName,
+          strength_text: medication.strengthText,
+          dosage_text: medication.dosageText,
+          frequency_text: medication.frequencyText,
+          timing_text: medication.timingText,
+          duration_text: medication.durationText,
+          start_date_text: medication.startDateText,
+          notes_text: medication.notesText,
+          normalized_fields: medication.normalizedFields,
+          confidence_flags: medication.confidenceFlags,
+          parsing_issues: medication.parsingIssues,
+          review_status: medication.reviewStatus,
+          is_schedule_generatable: medication.isScheduleGeneratable,
+        }))
+      );
 
-    if (medicationInsertError) {
-      throw medicationInsertError;
+      if (medicationInsertError) {
+        throw medicationInsertError;
+      }
     }
 
     const { error: extractionUpdateError } = await admin
@@ -1572,6 +1587,7 @@ Deno.serve(async (request) => {
         extractionRunId,
         positionIndex: medication.positionIndex,
         rawMedicationText: medication.rawMedicationText,
+        medicationName: medication.medicationName,
         strengthText: medication.strengthText,
         dosageText: medication.dosageText,
         frequencyText: medication.frequencyText,
@@ -1591,7 +1607,7 @@ Deno.serve(async (request) => {
       requiresReview: true,
     });
   } catch (error) {
-    if (payload?.prescriptionId) {
+    if (admin && payload?.prescriptionId) {
       try {
         const { data: latestRun } = await admin
           .from('extraction_runs')

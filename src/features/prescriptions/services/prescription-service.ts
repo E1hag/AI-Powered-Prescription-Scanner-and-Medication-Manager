@@ -6,9 +6,13 @@ export type PrescriptionStatus =
   | "uploaded"
   | "processing"
   | "processed"
+  | "needs_review"
+  | "ready_for_schedule"
   | "reviewed"
   | "scheduled"
-  | "failed";
+  | "failed"
+  | "ocr_failed"
+  | "finalized";
 
 export type ScheduleDose = {
   id: string;
@@ -47,6 +51,7 @@ export type CreatePrescriptionInput = {
   imageUri?: string;
   imageUrl?: string;
   status?: PrescriptionStatus;
+  source?: "camera" | "library" | "upload";
 };
 
 export type UpdatePrescriptionInput = {
@@ -65,6 +70,91 @@ function isSupabaseConfigured() {
   return Boolean(supabase);
 }
 
+function mapWritablePrescriptionStatus(status: PrescriptionStatus) {
+  const statusMap: Partial<Record<PrescriptionStatus, string>> = {
+    uploaded: "draft",
+    processed: "needs_review",
+    reviewed: "ready_for_schedule",
+    scheduled: "finalized",
+    failed: "ocr_failed",
+  };
+
+  return statusMap[status] ?? status;
+}
+
+function getText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getNormalizedField(row: any, fieldName: string) {
+  const normalizedFields = row?.normalized_fields;
+
+  if (!normalizedFields || typeof normalizedFields !== "object") {
+    return "";
+  }
+
+  return getText((normalizedFields as Record<string, unknown>)[fieldName]);
+}
+
+function getErrorMessage(error: unknown, fallbackMessage: string) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const parts = [
+      errorRecord.message,
+      errorRecord.details,
+      errorRecord.hint,
+      errorRecord.code,
+    ].filter((part): part is string => {
+      return typeof part === "string" && part.trim().length > 0;
+    });
+
+    if (parts.length > 0) {
+      return parts.join(" ");
+    }
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  return fallbackMessage;
+}
+
+async function getFunctionErrorMessage(error: unknown) {
+  const fallbackMessage =
+    getErrorMessage(error, "Prescription analysis failed.");
+  const context = (error as { context?: unknown } | null)?.context;
+
+  if (
+    context &&
+    typeof context === "object" &&
+    "clone" in context &&
+    typeof context.clone === "function"
+  ) {
+    try {
+      const response = (context as Response).clone();
+      const body = await response.json();
+
+      if (
+        body &&
+        typeof body === "object" &&
+        "error" in body &&
+        typeof body.error === "string"
+      ) {
+        return body.error;
+      }
+    } catch {
+      return fallbackMessage;
+    }
+  }
+
+  return fallbackMessage;
+}
+
 function mapPrescriptionRow(row: any): Prescription {
   return {
     id: row.id,
@@ -79,60 +169,51 @@ function mapPrescriptionRow(row: any): Prescription {
 }
 
 function mapExtractedMedicationRow(row: any, index: number): ScheduleDose {
+  const medicationName =
+    getText(row.medication_name) ||
+    getNormalizedField(row, "medicationName") ||
+    `Medication ${index + 1}`;
+  const dosage =
+    getText(row.dosage_text) ||
+    getNormalizedField(row, "dosage") ||
+    getText(row.strength_text) ||
+    getNormalizedField(row, "strength");
+  const instructions =
+    getText(row.notes_text) ||
+    getNormalizedField(row, "notes") ||
+    getText(row.timing_text) ||
+    getNormalizedField(row, "timingInstructions");
+
   return {
     id: String(row.id ?? `med-${index + 1}`),
-    medicationName: String(row.medication_name ?? ""),
-    dosage: String(row.dosage_text ?? row.dosage ?? ""),
-    frequency: String(row.frequency_text ?? row.frequency ?? ""),
-    duration: String(row.duration_text ?? row.duration ?? ""),
-    instructions: String(row.instruction_text ?? row.instructions ?? ""),
-    ingredientA: String(row.ingredient_a ?? ""),
+    medicationName,
+    dosage,
+    frequency:
+      getText(row.frequency_text) ||
+      getNormalizedField(row, "frequency") ||
+      getText(row.frequency),
+    duration:
+      getText(row.duration_text) ||
+      getNormalizedField(row, "duration") ||
+      getText(row.duration),
+    instructions,
+    ingredientA: getText(row.ingredient_a) || medicationName,
     ingredientB: row.ingredient_b ? String(row.ingredient_b) : null,
     time: "08:00 AM",
   };
 }
 
-function createFallbackMedications(): ScheduleDose[] {
-  return [
-    {
-      id: "1",
-      medicationName: "Amoxicillin",
-      dosage: "500mg",
-      frequency: "Twice daily",
-      duration: "7 days",
-      instructions: "Take after food",
-      ingredientA: "Amoxicillin",
-      ingredientB: null,
-      time: "08:00 AM",
-    },
-    {
-      id: "2",
-      medicationName: "MAXIGESIC",
-      dosage: "2 tabs",
-      frequency: "3 per day",
-      duration: "4 days",
-      instructions: "Take only if needed for pain or fever",
-      ingredientA: "Ibuprofen",
-      ingredientB: "Paracetamol",
-      time: "02:00 PM",
-    },
-    {
-      id: "3",
-      medicationName: "DYMISTA",
-      dosage: "2 puffs",
-      frequency: "2 per day",
-      duration: "5 days",
-      instructions: "Use as directed",
-      ingredientA: "Azelastine Hydrochloride",
-      ingredientB: "Fluticasone Propionate",
-      time: "08:00 PM",
-    },
-  ];
-}
-
 export const prescriptionService = {
   async createPrescription(input: CreatePrescriptionInput = {}) {
     try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        throw new Error("Please sign in before creating a prescription.");
+      }
+
       let uploadedImageUrl = input.imageUrl ?? null;
       let uploadedImagePath: string | null = null;
 
@@ -146,9 +227,10 @@ export const prescriptionService = {
       }
 
       const insertPayload = {
-        image_url: uploadedImageUrl,
-        image_path: uploadedImagePath,
-        status: input.status ?? "uploaded",
+        user_id: user.id,
+        patient_id: user.id,
+        source_type: input.source ?? "upload",
+        status: mapWritablePrescriptionStatus(input.status ?? "draft"),
       };
 
       const { data, error } = await supabase
@@ -190,6 +272,110 @@ export const prescriptionService = {
     }
   },
 
+  async analyzePrescriptionImage(input: {
+    imageUri: string;
+    source?: "camera" | "library" | "upload";
+  }): Promise<ReviewDraft> {
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.user) {
+      throw new Error("Please sign in before scanning a prescription.");
+    }
+
+    const sourceType = input.source ?? "upload";
+    const uploadResult = await storageService.uploadPrescriptionImage(
+      input.imageUri,
+    );
+
+    if (uploadResult.path.startsWith("local/")) {
+      throw new Error("Unable to upload the prescription image.");
+    }
+
+    const { data: prescription, error: prescriptionError } = await supabase
+      .from("prescriptions")
+      .insert({
+        user_id: session.user.id,
+        patient_id: session.user.id,
+        status: "draft",
+        source_type: sourceType,
+      })
+      .select("*")
+      .single();
+
+    if (prescriptionError || !prescription) {
+      throw new Error(
+        getErrorMessage(
+          prescriptionError,
+          "Unable to create prescription.",
+        ),
+      );
+    }
+
+    const { error: imageError } = await supabase
+      .from("prescription_images")
+      .insert({
+        prescription_id: prescription.id,
+        storage_path: uploadResult.path,
+        mime_type: uploadResult.mimeType,
+        capture_source: sourceType === "library" ? "gallery" : sourceType,
+      });
+
+    if (imageError) {
+      throw new Error(
+        getErrorMessage(
+          imageError,
+          "Unable to save prescription image metadata.",
+        ),
+      );
+    }
+
+    const { data: analysisResult, error: analysisError } =
+      await supabase.functions.invoke("analyze-prescription", {
+        body: {
+          prescriptionId: prescription.id,
+          imagePath: uploadResult.path,
+          mimeType: uploadResult.mimeType,
+          storageBucket: "prescription-images",
+          useMockData: false,
+        },
+      });
+
+    if (analysisError) {
+      throw new Error(await getFunctionErrorMessage(analysisError));
+    }
+
+    if (
+      analysisResult &&
+      typeof analysisResult === "object" &&
+      "error" in analysisResult
+    ) {
+      throw new Error(String(analysisResult.error));
+    }
+
+    const analysisData = analysisResult as
+      | { source?: string; provider?: string }
+      | null;
+
+    if (
+      analysisData?.source === "mock" ||
+      analysisData?.provider === "mock-seeded"
+    ) {
+      throw new Error(
+        "Live prescription analysis is not configured. Please configure Google Document AI for the scanner.",
+      );
+    }
+
+    const reviewDraft = await this.getReviewDraft(prescription.id);
+
+    return {
+      prescription: reviewDraft.prescription ?? mapPrescriptionRow(prescription),
+      medications: reviewDraft.medications,
+    };
+  },
+
   async getPrescriptionById(id: string) {
     try {
       const { data, error } = await supabase
@@ -202,15 +388,8 @@ export const prescriptionService = {
         console.log("Supabase get prescription error:", error.message);
 
         return {
-          data: {
-            id,
-            image_url: null,
-            image_path: null,
-            status: "processed",
-            extracted_text: null,
-            extracted_medications: createFallbackMedications(),
-          } as Prescription,
-          error: null,
+          data: null,
+          error,
         };
       }
 
@@ -254,7 +433,7 @@ export const prescriptionService = {
           : prescription?.extracted_medications &&
               prescription.extracted_medications.length > 0
             ? prescription.extracted_medications
-            : createFallbackMedications();
+            : [];
 
       return {
         prescription,
@@ -265,7 +444,7 @@ export const prescriptionService = {
 
       return {
         prescription: null,
-        medications: createFallbackMedications(),
+        medications: [],
       };
     }
   },
@@ -277,7 +456,7 @@ export const prescriptionService = {
       };
 
       if (input.status) {
-        updatePayload.status = input.status;
+        updatePayload.status = mapWritablePrescriptionStatus(input.status);
       }
 
       if (input.extractedText !== undefined) {
@@ -325,60 +504,6 @@ export const prescriptionService = {
       };
     } catch (error) {
       console.log("Update prescription error:", error);
-
-      return {
-        data: null,
-        error,
-      };
-    }
-  },
-
-  async processPrescription(id: string) {
-    try {
-      const mockMedications: ScheduleDose[] = [
-        {
-          id: "1",
-          medicationName: "Amoxicillin",
-          dosage: "500mg",
-          frequency: "Twice daily",
-          duration: "7 days",
-          instructions: "Take after food",
-          ingredientA: "Amoxicillin",
-          ingredientB: null,
-          time: "08:00 AM",
-        },
-        {
-          id: "2",
-          medicationName: "MAXIGESIC",
-          dosage: "2 tabs",
-          frequency: "3 per day",
-          duration: "4 days",
-          instructions: "Take only if needed for pain or fever",
-          ingredientA: "Ibuprofen",
-          ingredientB: "Paracetamol",
-          time: "02:00 PM",
-        },
-        {
-          id: "3",
-          medicationName: "DYMISTA",
-          dosage: "2 puffs",
-          frequency: "2 per day",
-          duration: "5 days",
-          instructions: "Use as directed",
-          ingredientA: "Azelastine Hydrochloride",
-          ingredientB: "Fluticasone Propionate",
-          time: "08:00 PM",
-        },
-      ];
-
-      return await this.updatePrescription(id, {
-        status: "processed",
-        extractedText:
-          "Amoxicillin 500mg twice daily after food. MAXIGESIC contains Ibuprofen and Paracetamol. DYMISTA contains Azelastine Hydrochloride and Fluticasone Propionate.",
-        extractedMedications: mockMedications,
-      });
-    } catch (error) {
-      console.log("Process prescription error:", error);
 
       return {
         data: null,

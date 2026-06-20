@@ -14,18 +14,6 @@ import {
 
 import { prescriptionService } from "@/src/features/prescriptions/services/prescription-service";
 
-type MedicationResult = {
-  id: string;
-  name: string;
-  dosage: string;
-  frequency: string;
-  duration: string;
-  instructions: string;
-  ingredientA: string;
-  ingredientB: string;
-  confidence: "High" | "Medium" | "Low";
-};
-
 type ProcessingStepStatus = "waiting" | "active" | "done" | "error";
 
 type ProcessingStep = {
@@ -35,52 +23,33 @@ type ProcessingStep = {
   status: ProcessingStepStatus;
 };
 
-const truDocExtractedMedications: MedicationResult[] = [
-  {
-    id: "med-zmycin",
-    name: "Z-MYCIN",
-    dosage: "1 tab",
-    frequency: "1 per day",
-    duration: "3 days",
-    instructions: "1 tab, 1 time per day, for 3 days",
-    ingredientA: "Azithromycin",
-    ingredientB: "",
-    confidence: "High",
-  },
-  {
-    id: "med-maxigesic",
-    name: "MAXIGESIC",
-    dosage: "2 tabs",
-    frequency: "3 per day",
-    duration: "4 days",
-    instructions: "Take 2 tabs, 3 times daily, for 4 days. PRN",
-    ingredientA: "Ibuprofen",
-    ingredientB: "Paracetamol",
-    confidence: "High",
-  },
-  {
-    id: "med-dymista",
-    name: "DYMISTA",
-    dosage: "2 puffs",
-    frequency: "2 per day",
-    duration: "5 days",
-    instructions: "2 puffs, 2 times per day, for 5 days",
-    ingredientA: "Azelastine Hydrochloride",
-    ingredientB: "Fluticasone Propionate",
-    confidence: "High",
-  },
-  {
-    id: "med-sinecod",
-    name: "SINECOD",
-    dosage: "10 mL",
-    frequency: "3 per day",
-    duration: "5 days",
-    instructions: "Take 10 mL, 3 times daily, for 5 days",
-    ingredientA: "Butamirate Dihydrogen Citrate",
-    ingredientB: "",
-    confidence: "High",
-  },
-];
+function getProcessingErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  if (error && typeof error === "object") {
+    const errorRecord = error as Record<string, unknown>;
+    const parts = [
+      errorRecord.message,
+      errorRecord.details,
+      errorRecord.hint,
+      errorRecord.code,
+    ].filter((part): part is string => {
+      return typeof part === "string" && part.trim().length > 0;
+    });
+
+    if (parts.length > 0) {
+      return parts.join(" ");
+    }
+  }
+
+  if (typeof error === "string" && error.trim().length > 0) {
+    return error;
+  }
+
+  return "Unable to process the prescription. Please try again.";
+}
 
 export default function ProcessingPrescriptionScreen() {
   const params = useLocalSearchParams<{
@@ -159,37 +128,6 @@ export default function ProcessingPrescriptionScreen() {
     }
   };
 
-  const createSupabasePrescriptionIfPossible = async () => {
-    const createResult = await prescriptionService.createPrescription({
-      imageUri,
-      status: "processed",
-    });
-
-    const prescriptionId = createResult.data?.id ?? "new";
-
-    await prescriptionService.updatePrescription(prescriptionId, {
-      status: "processed",
-      extractedText:
-        "Z-MYCIN Azithromycin 1 tab 1 per day for 3 days. MAXIGESIC Ibuprofen Paracetamol 2 tabs 3 per day for 4 days. DYMISTA Azelastine Hydrochloride Fluticasone Propionate 2 puffs 2 per day for 5 days. SINECOD Butamirate Dihydrogen Citrate 10 mL 3 per day for 5 days.",
-      extractedMedications: truDocExtractedMedications.map((medication) => ({
-        id: medication.id,
-        medicationName: medication.name,
-        dosage: medication.dosage,
-        frequency: medication.frequency,
-        duration: medication.duration,
-        instructions: medication.instructions,
-        ingredientA: medication.ingredientA,
-        ingredientB:
-          medication.ingredientB.trim().length > 0
-            ? medication.ingredientB
-            : null,
-        time: "08:00 AM",
-      })),
-    });
-
-    return prescriptionId;
-  };
-
   const processPrescription = async () => {
     if (!imageUri) {
       setIsProcessing(false);
@@ -209,25 +147,29 @@ export default function ProcessingPrescriptionScreen() {
       setHasError(false);
       setProgressPercent(0);
 
-      await wait(700);
+      await wait(500);
       setProgressPercent(25);
       completeStepAndStartNext(1);
 
-      await wait(900);
-      setProgressPercent(50);
+      const reviewDraft = await prescriptionService.analyzePrescriptionImage({
+        imageUri,
+        source: source === "camera" ? "camera" : "library",
+      });
+
+      setProgressPercent(70);
       completeStepAndStartNext(2);
 
-      await wait(900);
-      setProgressPercent(75);
+      await wait(300);
+      setProgressPercent(90);
       completeStepAndStartNext(3);
 
-      const prescriptionId = await createSupabasePrescriptionIfPossible();
-
-      await wait(700);
+      await wait(300);
       setProgressPercent(100);
       completeStepAndStartNext(4);
 
       await wait(500);
+
+      const prescriptionId = reviewDraft.prescription?.id ?? "new";
 
       router.replace({
         pathname: "/prescriptions/[id]/review",
@@ -235,7 +177,7 @@ export default function ProcessingPrescriptionScreen() {
           id: prescriptionId,
           imageUri,
           source,
-          medications: JSON.stringify(truDocExtractedMedications),
+          medications: JSON.stringify(reviewDraft.medications),
         },
       });
     } catch (error) {
@@ -257,9 +199,7 @@ export default function ProcessingPrescriptionScreen() {
 
       Alert.alert(
         "Processing Failed",
-        error instanceof Error
-          ? error.message
-          : "Unable to process the prescription. Please try again.",
+        getProcessingErrorMessage(error),
       );
     }
   };

@@ -14,6 +14,15 @@ export function usePrescriptionDraft(prescriptionId: string) {
   useEffect(() => {
     let isMounted = true;
 
+    if (!prescriptionId) {
+      setData(null);
+      setIsLoading(false);
+      setError(null);
+      return () => {
+        isMounted = false;
+      };
+    }
+
     setIsLoading(true);
     setError(null);
 
