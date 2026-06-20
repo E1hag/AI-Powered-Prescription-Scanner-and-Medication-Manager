@@ -710,7 +710,7 @@ export default function AdherenceScreen() {
             <Text style={styles.resetButtonText}>
               {isUpdatingDoseId === "reset-all"
                 ? "Resetting..."
-                : "Reset Today&apos;s Doses"}
+                : "Reset Today's Doses"}
             </Text>
           </Pressable>
         </>

@@ -1,3 +1,5 @@
+import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
+import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
@@ -55,8 +57,10 @@ const defaultDoses: ScheduleDose[] = [
 ];
 
 export default function HomeScreen() {
+  const { user } = useAuthSession();
   const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
   const [hasSavedSchedule, setHasSavedSchedule] = useState(false);
+  const accountDisplay = useMemo(() => getAccountDisplay(user), [user]);
 
   const loadSavedSchedule = async () => {
     try {
@@ -141,6 +145,15 @@ export default function HomeScreen() {
     router.push("/(tabs)/adherence");
   };
 
+  const goToProfile = () => {
+    router.push({
+      pathname: "/(tabs)/profile",
+      params: {
+        scrollTo: "actions",
+      },
+    });
+  };
+
   const getStatusStyle = (status: DoseStatus) => {
     if (status === "Taken") {
       return {
@@ -184,14 +197,19 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.headerRow}>
-        <View>
-          <Text style={styles.greeting}>Hello, Uthman 👋</Text>
+        <View style={styles.headerTextBox}>
+          <Text style={styles.greeting}>Hello, {accountDisplay.fullName} 👋</Text>
           <Text style={styles.subtitle}>
             Stay on track with your medications today.
           </Text>
         </View>
 
-        <Pressable style={styles.bellButton}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open dose reminders"
+          style={styles.bellButton}
+          onPress={goToDoseReminders}
+        >
           <Ionicons name="notifications-outline" size={26} color="#0f172a" />
         </Pressable>
       </View>
@@ -250,7 +268,11 @@ export default function HomeScreen() {
 
       <View style={styles.sectionHeaderRow}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="View all app actions"
+          onPress={goToProfile}
+        >
           <Text style={styles.viewLink}>View All</Text>
         </Pressable>
       </View>
@@ -428,13 +450,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
+    gap: 12,
     marginBottom: 26,
+  },
+  headerTextBox: {
+    flex: 1,
+    minWidth: 0,
   },
   greeting: {
     fontSize: 32,
     fontWeight: "900",
     color: "#0f172a",
     marginBottom: 7,
+    flexShrink: 1,
   },
   subtitle: {
     fontSize: 17,
@@ -446,9 +474,15 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 21,
+    backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
     marginTop: 6,
+    flexShrink: 0,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   nextDoseCard: {
     backgroundColor: "#eef2ff",

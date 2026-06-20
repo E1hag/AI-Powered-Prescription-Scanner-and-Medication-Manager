@@ -1,13 +1,20 @@
+import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
+import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
+import { supabase } from "@/src/lib/supabase";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
-import React from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 const COLORS = {
@@ -22,21 +29,174 @@ const COLORS = {
   border: "#E5EAF2",
 };
 
+const PERSONAL_DETAILS_STORAGE_KEY = "MEDCO_PERSONAL_DETAILS";
+
+type LocalPersonalDetails = {
+  age: string;
+  gender: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+};
+
+const defaultLocalDetails: LocalPersonalDetails = {
+  age: "",
+  gender: "",
+  emergencyContactName: "",
+  emergencyContactPhone: "",
+};
+
+function getMetadataValue(user: ReturnType<typeof useAuthSession>["user"], key: string) {
+  const value = user?.user_metadata?.[key];
+
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export default function PersonalDetailsScreen() {
-  const handleSaveChanges = () => {
-    Alert.alert("Saved", "Personal details saved successfully.", [
-      {
-        text: "OK",
-        onPress: () => router.back(),
-      },
-    ]);
+  const { user } = useAuthSession();
+  const accountDisplay = useMemo(() => getAccountDisplay(user), [user]);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [age, setAge] = useState(defaultLocalDetails.age);
+  const [gender, setGender] = useState(defaultLocalDetails.gender);
+  const [emergencyContactName, setEmergencyContactName] = useState(
+    defaultLocalDetails.emergencyContactName,
+  );
+  const [emergencyContactPhone, setEmergencyContactPhone] = useState(
+    defaultLocalDetails.emergencyContactPhone,
+  );
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setFullName(
+      getMetadataValue(user, "full_name") ||
+        (user?.email ? user.email.split("@")[0] : ""),
+    );
+    setEmail(user?.email ?? "");
+    setPhone(getMetadataValue(user, "phone"));
+  }, [user]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadLocalDetails() {
+      try {
+        const savedDetailsRaw = await AsyncStorage.getItem(
+          PERSONAL_DETAILS_STORAGE_KEY,
+        );
+
+        if (!savedDetailsRaw || !isMounted) {
+          return;
+        }
+
+        const savedDetails = JSON.parse(
+          savedDetailsRaw,
+        ) as Partial<LocalPersonalDetails>;
+
+        setAge(savedDetails.age ?? "");
+        setGender(savedDetails.gender ?? "");
+        setEmergencyContactName(savedDetails.emergencyContactName ?? "");
+        setEmergencyContactPhone(savedDetails.emergencyContactPhone ?? "");
+      } catch {
+        if (isMounted) {
+          setAge(defaultLocalDetails.age);
+          setGender(defaultLocalDetails.gender);
+          setEmergencyContactName(defaultLocalDetails.emergencyContactName);
+          setEmergencyContactPhone(defaultLocalDetails.emergencyContactPhone);
+        }
+      }
+    }
+
+    loadLocalDetails();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSaveChanges = async () => {
+    if (!user) {
+      Alert.alert("Not Signed In", "Please sign in before editing your details.");
+      return;
+    }
+
+    const trimmedFullName = fullName.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedPhone = phone.trim();
+
+    if (!trimmedFullName) {
+      Alert.alert("Missing Name", "Please enter your full name.");
+      return;
+    }
+
+    if (!trimmedEmail || !/\S+@\S+\.\S+/.test(trimmedEmail)) {
+      Alert.alert("Invalid Email", "Please enter a valid email address.");
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+
+      const updatePayload: {
+        email?: string;
+        data: {
+          full_name: string;
+          phone: string;
+        };
+      } = {
+        data: {
+          full_name: trimmedFullName,
+          phone: trimmedPhone,
+        },
+      };
+
+      if (trimmedEmail !== user.email) {
+        updatePayload.email = trimmedEmail;
+      }
+
+      const { error } = await supabase.auth.updateUser(updatePayload);
+
+      if (error) {
+        Alert.alert("Save Failed", error.message);
+        return;
+      }
+
+      await AsyncStorage.setItem(
+        PERSONAL_DETAILS_STORAGE_KEY,
+        JSON.stringify({
+          age: age.trim(),
+          gender: gender.trim(),
+          emergencyContactName: emergencyContactName.trim(),
+          emergencyContactPhone: emergencyContactPhone.trim(),
+        } satisfies LocalPersonalDetails),
+      );
+
+      Alert.alert(
+        "Saved",
+        trimmedEmail !== user.email
+          ? "Personal details saved. Please check your email to confirm the address change."
+          : "Personal details saved successfully.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.back(),
+          },
+        ],
+      );
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      style={styles.screen}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
       >
         <TouchableOpacity
           activeOpacity={0.8}
@@ -56,25 +216,38 @@ export default function PersonalDetailsScreen() {
             <Ionicons name="person" size={48} color={COLORS.blue} />
           </View>
 
-          <Text style={styles.name}>Uthman</Text>
-          <Text style={styles.email}>group12prescription@gmail.com</Text>
+          <Text style={styles.name}>{fullName.trim() || accountDisplay.fullName}</Text>
+          <Text style={styles.email}>{email.trim() || accountDisplay.email}</Text>
         </View>
 
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>Basic Information</Text>
 
-          <InfoField label="Full Name" icon="person-outline" value="Uthman" />
-
-          <InfoField
-            label="Email Address"
-            icon="mail-outline"
-            value="group12prescription@gmail.com"
+          <EditableInfoField
+            label="Full Name"
+            icon="person-outline"
+            value={fullName}
+            onChangeText={setFullName}
+            placeholder="Enter your full name"
           />
 
-          <InfoField
+          <EditableInfoField
+            label="Email Address"
+            icon="mail-outline"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="Enter your email address"
+            keyboardType="email-address"
+            autoCapitalize="none"
+          />
+
+          <EditableInfoField
             label="Phone Number"
             icon="call-outline"
-            value="+971 50 000 0000"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Enter your phone number"
+            keyboardType="phone-pad"
           />
 
           <View style={styles.twoColumnRow}>
@@ -82,7 +255,14 @@ export default function PersonalDetailsScreen() {
               <Text style={styles.label}>Age</Text>
               <View style={styles.smallInputBox}>
                 <Ionicons name="calendar-outline" size={20} color="#9AA8BD" />
-                <Text style={styles.inputText}>27</Text>
+                <TextInput
+                  value={age}
+                  onChangeText={setAge}
+                  placeholder="Age"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="number-pad"
+                  style={styles.smallInputText}
+                />
               </View>
             </View>
 
@@ -94,7 +274,13 @@ export default function PersonalDetailsScreen() {
                   size={20}
                   color="#9AA8BD"
                 />
-                <Text style={styles.inputText}>Male</Text>
+                <TextInput
+                  value={gender}
+                  onChangeText={setGender}
+                  placeholder="Gender"
+                  placeholderTextColor="#94a3b8"
+                  style={styles.smallInputText}
+                />
               </View>
             </View>
           </View>
@@ -103,47 +289,73 @@ export default function PersonalDetailsScreen() {
         <View style={styles.infoCard}>
           <Text style={styles.sectionTitle}>Emergency Contact</Text>
 
-          <InfoField
+          <EditableInfoField
             label="Contact Name"
             icon="people-outline"
-            value="Emergency Contact"
+            value={emergencyContactName}
+            onChangeText={setEmergencyContactName}
+            placeholder="Enter emergency contact"
           />
 
-          <InfoField
+          <EditableInfoField
             label="Contact Phone"
             icon="call-outline"
-            value="+971 50 111 1111"
+            value={emergencyContactPhone}
+            onChangeText={setEmergencyContactPhone}
+            placeholder="Enter emergency phone"
+            keyboardType="phone-pad"
           />
         </View>
 
         <TouchableOpacity
           activeOpacity={0.85}
-          style={styles.saveButton}
+          style={[styles.saveButton, isSaving && styles.disabledButton]}
           onPress={handleSaveChanges}
+          disabled={isSaving}
         >
-          <Text style={styles.saveText}>Save Changes</Text>
+          <Text style={styles.saveText}>
+            {isSaving ? "Saving..." : "Save Changes"}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
-type InfoFieldProps = {
+type EditableInfoFieldProps = {
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   value: string;
+  onChangeText: (value: string) => void;
+  placeholder: string;
+  keyboardType?: "default" | "email-address" | "phone-pad" | "number-pad";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
 };
 
-function InfoField({ label, icon, value }: InfoFieldProps) {
+function EditableInfoField({
+  label,
+  icon,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType = "default",
+  autoCapitalize = "sentences",
+}: EditableInfoFieldProps) {
   return (
     <View style={styles.fieldWrapper}>
       <Text style={styles.label}>{label}</Text>
 
       <View style={styles.inputBox}>
         <Ionicons name={icon} size={21} color="#9AA8BD" />
-        <Text style={styles.inputText} numberOfLines={2}>
-          {value}
-        </Text>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#94a3b8"
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
+          style={styles.inputText}
+        />
       </View>
     </View>
   );
@@ -249,6 +461,7 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "800",
     color: COLORS.text,
+    minHeight: 56,
   },
   twoColumnRow: {
     flexDirection: "row",
@@ -268,6 +481,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 9,
   },
+  smallInputText: {
+    flex: 1,
+    height: 56,
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
   saveButton: {
     backgroundColor: COLORS.blue,
     height: 56,
@@ -280,5 +500,8 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "900",
+  },
+  disabledButton: {
+    opacity: 0.65,
   },
 });

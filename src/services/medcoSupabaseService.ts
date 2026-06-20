@@ -43,6 +43,31 @@ export type MedicalConditionProfile = {
   notes: string;
 };
 
+export type ClinicianAccessRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected";
+
+export type ClinicianAccessRequest = {
+  id: string;
+  clinicianId: string;
+  patientId: string;
+  status: ClinicianAccessRequestStatus;
+  requestedAt: string;
+  respondedAt: string | null;
+  reason: string | null;
+};
+
+export type TreatmentNote = {
+  id: string;
+  clinicianId: string;
+  patientId: string;
+  noteText: string;
+  noteType: string | null;
+  createdAt: string;
+  updatedAt: string | null;
+};
+
 type SupabaseScheduleRow = {
   id: string;
   user_id: string | null;
@@ -79,6 +104,52 @@ type SupabaseMedicalProfileRow = {
   updated_at: string;
 };
 
+type SupabaseClinicianAccessRequestRow = {
+  id: string;
+  clinician_id: string;
+  patient_id: string;
+  status: ClinicianAccessRequestStatus;
+  requested_at: string;
+  responded_at: string | null;
+  reason: string | null;
+};
+
+type SupabaseTreatmentNoteRow = {
+  id: string;
+  clinician_id: string;
+  patient_id: string;
+  note_text: string;
+  created_at: string;
+  updated_at: string | null;
+  note_type: string | null;
+};
+
+function mapClinicianAccessRequest(
+  request: SupabaseClinicianAccessRequestRow,
+): ClinicianAccessRequest {
+  return {
+    id: request.id,
+    clinicianId: request.clinician_id,
+    patientId: request.patient_id,
+    status: request.status,
+    requestedAt: request.requested_at,
+    respondedAt: request.responded_at,
+    reason: request.reason,
+  };
+}
+
+function mapTreatmentNote(note: SupabaseTreatmentNoteRow): TreatmentNote {
+  return {
+    id: note.id,
+    clinicianId: note.clinician_id,
+    patientId: note.patient_id,
+    noteText: note.note_text,
+    noteType: note.note_type,
+    createdAt: note.created_at,
+    updatedAt: note.updated_at,
+  };
+}
+
 export async function getCurrentUserId() {
   const { data, error } = await supabase.auth.getUser();
 
@@ -87,6 +158,103 @@ export async function getCurrentUserId() {
   }
 
   return data.user.id;
+}
+
+export async function getClinicianAccessRequestsForPatient(): Promise<
+  ClinicianAccessRequest[]
+> {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("clinician_access_requests")
+    .select("*")
+    .eq("patient_id", userId)
+    .order("requested_at", {
+      ascending: false,
+    })
+    .returns<SupabaseClinicianAccessRequestRow[]>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data.map(mapClinicianAccessRequest).sort((first, second) => {
+    if (first.status === "pending" && second.status !== "pending") {
+      return -1;
+    }
+
+    if (first.status !== "pending" && second.status === "pending") {
+      return 1;
+    }
+
+    return (
+      new Date(second.requestedAt).getTime() -
+      new Date(first.requestedAt).getTime()
+    );
+  });
+}
+
+async function respondToClinicianAccessRequest(
+  requestId: string,
+  status: ClinicianAccessRequestStatus,
+) {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    throw new Error("Please sign in before responding to clinician requests.");
+  }
+
+  const { data, error } = await supabase
+    .from("clinician_access_requests")
+    .update({
+      status,
+      responded_at: new Date().toISOString(),
+    })
+    .eq("id", requestId)
+    .eq("patient_id", userId)
+    .select("*")
+    .single<SupabaseClinicianAccessRequestRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return mapClinicianAccessRequest(data);
+}
+
+export async function approveClinicianAccessRequest(requestId: string) {
+  return respondToClinicianAccessRequest(requestId, "approved");
+}
+
+export async function denyClinicianAccessRequest(requestId: string) {
+  return respondToClinicianAccessRequest(requestId, "rejected");
+}
+
+export async function getTreatmentNotesForPatient(): Promise<TreatmentNote[]> {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("treatment_notes")
+    .select("*")
+    .eq("patient_id", userId)
+    .order("created_at", {
+      ascending: false,
+    })
+    .returns<SupabaseTreatmentNoteRow[]>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data.map(mapTreatmentNote);
 }
 
 export async function saveMedicationScheduleToSupabase(

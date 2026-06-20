@@ -1,9 +1,23 @@
+import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
+import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
+import { supabase } from "@/src/lib/supabase";
+import {
+  ClinicianAccessRequest,
+  ClinicianAccessRequestStatus,
+  TreatmentNote,
+  approveClinicianAccessRequest,
+  denyClinicianAccessRequest,
+  getClinicianAccessRequestsForPatient,
+  getTreatmentNotesForPatient,
+} from "@/src/services/medcoSupabaseService";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router, useFocusEffect } from "expo-router";
-import { useCallback, useMemo, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  LayoutChangeEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -74,14 +88,34 @@ const defaultDoses: ScheduleDose[] = [
 ];
 
 export default function ProfileScreen() {
+  const { user } = useAuthSession();
+  const { scrollTo } = useLocalSearchParams<{ scrollTo?: string }>();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const actionsSectionYRef = useRef<number | null>(null);
   const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [hasSavedSchedule, setHasSavedSchedule] = useState(false);
   const [scheduleCreatedAt, setScheduleCreatedAt] = useState<string | null>(
     null,
   );
+  const [accessRequests, setAccessRequests] = useState<
+    ClinicianAccessRequest[]
+  >([]);
+  const [isLoadingAccessRequests, setIsLoadingAccessRequests] = useState(false);
+  const [accessRequestError, setAccessRequestError] = useState<string | null>(
+    null,
+  );
+  const [updatingAccessRequestId, setUpdatingAccessRequestId] = useState<
+    string | null
+  >(null);
+  const [treatmentNotes, setTreatmentNotes] = useState<TreatmentNote[]>([]);
+  const [isLoadingTreatmentNotes, setIsLoadingTreatmentNotes] = useState(false);
+  const [treatmentNotesError, setTreatmentNotesError] = useState<string | null>(
+    null,
+  );
+  const accountDisplay = useMemo(() => getAccountDisplay(user), [user]);
 
-  const loadProfileData = async () => {
+  const loadProfileData = useCallback(async () => {
     try {
       const savedScheduleRaw = await AsyncStorage.getItem(
         MEDCO_SCHEDULE_STORAGE_KEY,
@@ -131,12 +165,88 @@ export default function ProfileScreen() {
       setHasSavedSchedule(false);
       setScheduleCreatedAt(null);
     }
-  };
+  }, []);
+
+  const loadClinicianAccessRequests = useCallback(async () => {
+    if (!user) {
+      setAccessRequests([]);
+      setAccessRequestError(null);
+      return;
+    }
+
+    try {
+      setIsLoadingAccessRequests(true);
+      setAccessRequestError(null);
+
+      const requests = await getClinicianAccessRequestsForPatient();
+      setAccessRequests(requests);
+    } catch (error) {
+      setAccessRequestError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load clinician access requests.",
+      );
+      setAccessRequests([]);
+    } finally {
+      setIsLoadingAccessRequests(false);
+    }
+  }, [user]);
+
+  const loadTreatmentNotes = useCallback(async () => {
+    if (!user) {
+      setTreatmentNotes([]);
+      setTreatmentNotesError(null);
+      return;
+    }
+
+    try {
+      setIsLoadingTreatmentNotes(true);
+      setTreatmentNotesError(null);
+
+      const notes = await getTreatmentNotesForPatient();
+      setTreatmentNotes(notes);
+    } catch (error) {
+      setTreatmentNotesError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load treatment notes.",
+      );
+      setTreatmentNotes([]);
+    } finally {
+      setIsLoadingTreatmentNotes(false);
+    }
+  }, [user]);
+
+  const scrollToActionsSection = useCallback((delayMs = 80) => {
+    setTimeout(() => {
+      if (actionsSectionYRef.current === null) {
+        return;
+      }
+
+      scrollViewRef.current?.scrollTo({
+        y: Math.max(actionsSectionYRef.current - 12, 0),
+        animated: true,
+      });
+    }, delayMs);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadProfileData();
-    }, []),
+      loadClinicianAccessRequests();
+      loadTreatmentNotes();
+
+      if (scrollTo === "actions") {
+        scrollToActionsSection();
+        scrollToActionsSection(350);
+      }
+    }, [
+      loadClinicianAccessRequests,
+      loadProfileData,
+      loadTreatmentNotes,
+      scrollTo,
+      scrollToActionsSection,
+    ]),
   );
 
   const profileStats = useMemo(() => {
@@ -184,6 +294,126 @@ export default function ProfileScreen() {
     } catch {
       return "Schedule saved recently";
     }
+  };
+
+  const formatAccessRequestDate = (isoDate: string | null) => {
+    if (!isoDate) {
+      return "No response recorded";
+    }
+
+    try {
+      return new Date(isoDate).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Recently";
+    }
+  };
+
+  const wasUpdatedAfterCreation = (note: TreatmentNote) => {
+    if (!note.updatedAt) {
+      return false;
+    }
+
+    return Math.abs(
+      new Date(note.updatedAt).getTime() - new Date(note.createdAt).getTime(),
+    ) > 1000;
+  };
+
+  const handleActionsSectionLayout = (event: LayoutChangeEvent) => {
+    actionsSectionYRef.current = event.nativeEvent.layout.y;
+
+    if (scrollTo === "actions") {
+      scrollToActionsSection(40);
+    }
+  };
+
+  const shortenClinicianId = (clinicianId: string) => {
+    if (clinicianId.length <= 12) {
+      return clinicianId;
+    }
+
+    return `${clinicianId.slice(0, 8)}...${clinicianId.slice(-4)}`;
+  };
+
+  const getAccessStatusStyles = (status: ClinicianAccessRequestStatus) => {
+    if (status === "approved") {
+      return {
+        badge: styles.accessApprovedBadge,
+        text: styles.accessApprovedText,
+        icon: "checkmark-circle" as const,
+        iconColor: "#16a34a",
+      };
+    }
+
+    if (status === "rejected") {
+      return {
+        badge: styles.accessRejectedBadge,
+        text: styles.accessRejectedText,
+        icon: "close-circle" as const,
+        iconColor: "#dc2626",
+      };
+    }
+
+    return {
+      badge: styles.accessPendingBadge,
+      text: styles.accessPendingText,
+      icon: "time" as const,
+      iconColor: "#f59e0b",
+    };
+  };
+
+  const formatAccessStatus = (status: ClinicianAccessRequestStatus) => {
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const respondToAccessRequest = (
+    request: ClinicianAccessRequest,
+    nextStatus: "approved" | "rejected",
+  ) => {
+    const isApproval = nextStatus === "approved";
+
+    Alert.alert(
+      isApproval ? "Approve Request" : "Deny Request",
+      isApproval
+        ? "This clinician will be able to read your adherence schedule and history."
+        : "This clinician will not be able to access your adherence logs.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: isApproval ? "Approve" : "Deny",
+          style: isApproval ? "default" : "destructive",
+          onPress: async () => {
+            try {
+              setUpdatingAccessRequestId(request.id);
+
+              if (isApproval) {
+                await approveClinicianAccessRequest(request.id);
+              } else {
+                await denyClinicianAccessRequest(request.id);
+              }
+
+              await loadClinicianAccessRequests();
+            } catch (error) {
+              Alert.alert(
+                "Request Update Failed",
+                error instanceof Error
+                  ? error.message
+                  : "Unable to update the clinician access request.",
+              );
+            } finally {
+              setUpdatingAccessRequestId(null);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const goToPersonalDetails = () => {
@@ -246,13 +476,23 @@ export default function ProfileScreen() {
       {
         text: "Sign Out",
         style: "destructive",
-        onPress: () => router.replace("/login"),
+        onPress: async () => {
+          const { error } = await supabase.auth.signOut();
+
+          if (error) {
+            Alert.alert("Sign Out Failed", error.message);
+            return;
+          }
+
+          router.replace("/login");
+        },
       },
     ]);
   };
 
   return (
     <ScrollView
+      ref={scrollViewRef}
       style={styles.container}
       contentContainerStyle={styles.contentContainer}
       showsVerticalScrollIndicator={false}
@@ -266,12 +506,12 @@ export default function ProfileScreen() {
 
       <View style={styles.profileCard}>
         <View style={styles.avatarCircle}>
-          <Text style={styles.avatarText}>UT</Text>
+          <Text style={styles.avatarText}>{accountDisplay.initials}</Text>
         </View>
 
         <View style={styles.profileInfo}>
-          <Text style={styles.name}>Uthman Tijjani</Text>
-          <Text style={styles.email}>uthman@example.com</Text>
+          <Text style={styles.name}>{accountDisplay.fullName}</Text>
+          <Text style={styles.email}>{accountDisplay.email}</Text>
           <Text style={styles.scheduleStatus}>
             {formatCreatedDate(scheduleCreatedAt)}
           </Text>
@@ -369,7 +609,184 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <Text style={styles.sectionTitle}>Medical Profile</Text>
+      <Text style={styles.sectionTitle}>Clinician Access Requests</Text>
+
+      <View style={styles.accessRequestsCard}>
+        {isLoadingAccessRequests ? (
+          <View style={styles.accessLoadingRow}>
+            <ActivityIndicator color="#2563eb" />
+            <Text style={styles.accessLoadingText}>Loading requests...</Text>
+          </View>
+        ) : null}
+
+        {accessRequestError ? (
+          <View style={styles.accessErrorBox}>
+            <Ionicons name="warning" size={20} color="#b45309" />
+            <Text style={styles.accessErrorText}>{accessRequestError}</Text>
+          </View>
+        ) : null}
+
+        {!isLoadingAccessRequests &&
+        !accessRequestError &&
+        accessRequests.length === 0 ? (
+          <View style={styles.emptyAccessBox}>
+            <Ionicons name="shield-checkmark" size={30} color="#94a3b8" />
+            <Text style={styles.emptyAccessTitle}>
+              No clinician access requests.
+            </Text>
+            <Text style={styles.emptyAccessText}>
+              Requests from clinicians will appear here for your approval.
+            </Text>
+          </View>
+        ) : null}
+
+        {accessRequests.map((request) => {
+          const statusStyle = getAccessStatusStyles(request.status);
+          const isUpdating = updatingAccessRequestId === request.id;
+
+          return (
+            <View key={request.id} style={styles.accessRequestItem}>
+              <View style={styles.accessRequestHeader}>
+                <View style={styles.accessClinicianIcon}>
+                  <Ionicons
+                    name={statusStyle.icon}
+                    size={22}
+                    color={statusStyle.iconColor}
+                  />
+                </View>
+
+                <View style={styles.accessRequestTextBox}>
+                  <Text style={styles.accessClinicianName}>
+                    Clinician {shortenClinicianId(request.clinicianId)}
+                  </Text>
+                  <Text style={styles.accessRequestedAt}>
+                    Requested {formatAccessRequestDate(request.requestedAt)}
+                  </Text>
+                </View>
+
+                <View style={[styles.accessStatusBadge, statusStyle.badge]}>
+                  <Text style={[styles.accessStatusText, statusStyle.text]}>
+                    {formatAccessStatus(request.status)}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.accessReason}>
+                {request.reason?.trim() || "No reason provided."}
+              </Text>
+
+              {request.respondedAt ? (
+                <Text style={styles.accessRespondedAt}>
+                  Responded {formatAccessRequestDate(request.respondedAt)}
+                </Text>
+              ) : null}
+
+              {request.status === "pending" ? (
+                <View style={styles.accessActionsRow}>
+                  <Pressable
+                    style={[
+                      styles.accessActionButton,
+                      styles.denyAccessButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => respondToAccessRequest(request, "rejected")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.denyAccessText}>
+                      {isUpdating ? "Updating..." : "Deny"}
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={[
+                      styles.accessActionButton,
+                      styles.approveAccessButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => respondToAccessRequest(request, "approved")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.approveAccessText}>
+                      {isUpdating ? "Updating..." : "Approve"}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+
+      <Text style={styles.sectionTitle}>Treatment Notes</Text>
+
+      <View style={styles.treatmentNotesCard}>
+        {isLoadingTreatmentNotes ? (
+          <View style={styles.accessLoadingRow}>
+            <ActivityIndicator color="#2563eb" />
+            <Text style={styles.accessLoadingText}>Loading notes...</Text>
+          </View>
+        ) : null}
+
+        {treatmentNotesError ? (
+          <View style={styles.accessErrorBox}>
+            <Ionicons name="warning" size={20} color="#b45309" />
+            <Text style={styles.accessErrorText}>{treatmentNotesError}</Text>
+          </View>
+        ) : null}
+
+        {!isLoadingTreatmentNotes &&
+        !treatmentNotesError &&
+        treatmentNotes.length === 0 ? (
+          <View style={styles.emptyAccessBox}>
+            <Ionicons name="document-text-outline" size={30} color="#94a3b8" />
+            <Text style={styles.emptyAccessTitle}>No treatment notes.</Text>
+            <Text style={styles.emptyAccessText}>
+              Notes from approved clinicians will appear here.
+            </Text>
+          </View>
+        ) : null}
+
+        {treatmentNotes.map((note) => {
+          return (
+            <View key={note.id} style={styles.treatmentNoteItem}>
+              <View style={styles.treatmentNoteHeader}>
+                <View style={styles.treatmentNoteIcon}>
+                  <Ionicons
+                    name="clipboard-outline"
+                    size={22}
+                    color="#2563eb"
+                  />
+                </View>
+
+                <View style={styles.treatmentNoteHeaderText}>
+                  <Text style={styles.treatmentNoteType}>
+                    {note.noteType?.trim() || "Treatment Note"}
+                  </Text>
+                  <Text style={styles.treatmentNoteMeta}>
+                    Clinician {shortenClinicianId(note.clinicianId)}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.treatmentNoteText}>{note.noteText}</Text>
+
+              <Text style={styles.treatmentNoteDate}>
+                Created {formatAccessRequestDate(note.createdAt)}
+                {wasUpdatedAfterCreation(note)
+                  ? ` • Updated ${formatAccessRequestDate(note.updatedAt)}`
+                  : ""}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <Text
+        style={styles.sectionTitle}
+        onLayout={handleActionsSectionLayout}
+      >
+        Medical Profile
+      </Text>
 
       <View style={styles.menuCard}>
         <ProfileMenuItem
@@ -752,6 +1169,219 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  accessRequestsCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 20,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  treatmentNotesCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 20,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  accessLoadingRow: {
+    minHeight: 72,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
+  accessLoadingText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#64748b",
+  },
+  accessErrorBox: {
+    backgroundColor: "#fef3c7",
+    borderRadius: 16,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+  },
+  accessErrorText: {
+    flex: 1,
+    fontSize: 13.3,
+    lineHeight: 19,
+    color: "#92400e",
+    fontWeight: "700",
+  },
+  emptyAccessBox: {
+    minHeight: 130,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+  },
+  emptyAccessTitle: {
+    fontSize: 17,
+    fontWeight: "900",
+    color: "#334155",
+    marginTop: 10,
+    textAlign: "center",
+  },
+  emptyAccessText: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748b",
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 5,
+  },
+  accessRequestItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+    paddingVertical: 13,
+  },
+  accessRequestHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  accessClinicianIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accessRequestTextBox: {
+    flex: 1,
+  },
+  accessClinicianName: {
+    fontSize: 15.5,
+    fontWeight: "900",
+    color: "#0f172a",
+    marginBottom: 3,
+  },
+  accessRequestedAt: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#94a3b8",
+  },
+  accessStatusBadge: {
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+  },
+  accessStatusText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  accessPendingBadge: {
+    backgroundColor: "#fef3c7",
+  },
+  accessPendingText: {
+    color: "#b45309",
+  },
+  accessApprovedBadge: {
+    backgroundColor: "#dcfce7",
+  },
+  accessApprovedText: {
+    color: "#15803d",
+  },
+  accessRejectedBadge: {
+    backgroundColor: "#fee2e2",
+  },
+  accessRejectedText: {
+    color: "#dc2626",
+  },
+  accessReason: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#475569",
+    fontWeight: "700",
+    marginTop: 10,
+  },
+  accessRespondedAt: {
+    fontSize: 12.5,
+    color: "#94a3b8",
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  accessActionsRow: {
+    flexDirection: "row",
+    gap: 9,
+    marginTop: 12,
+  },
+  accessActionButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  denyAccessButton: {
+    backgroundColor: "#fee2e2",
+  },
+  denyAccessText: {
+    color: "#dc2626",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  approveAccessButton: {
+    backgroundColor: "#16a34a",
+  },
+  approveAccessText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  treatmentNoteItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+    paddingVertical: 13,
+  },
+  treatmentNoteHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  treatmentNoteIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#eff6ff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  treatmentNoteHeaderText: {
+    flex: 1,
+  },
+  treatmentNoteType: {
+    fontSize: 15.5,
+    fontWeight: "900",
+    color: "#0f172a",
+    marginBottom: 3,
+  },
+  treatmentNoteMeta: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#94a3b8",
+  },
+  treatmentNoteText: {
+    fontSize: 14,
+    lineHeight: 21,
+    color: "#334155",
+    fontWeight: "700",
+  },
+  treatmentNoteDate: {
+    fontSize: 12.5,
+    color: "#94a3b8",
+    fontWeight: "700",
+    marginTop: 9,
+  },
   menuItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -800,6 +1430,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     color: "#ef4444",
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   bottomSpace: {
     height: 34,

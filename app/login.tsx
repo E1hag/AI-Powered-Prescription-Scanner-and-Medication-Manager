@@ -16,7 +16,7 @@ import {
 } from "react-native";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState("group12prescription@gmail.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -141,7 +141,7 @@ export default function LoginScreen() {
             disabled={isLoading}
           >
             <Text style={styles.switchLinkText}>
-              Don't have an account? Sign Up
+              Don&apos;t have an account? Sign Up
             </Text>
           </TouchableOpacity>
         </View>

@@ -15,11 +15,6 @@ import {
   View,
 } from "react-native";
 
-function generatePatientCode() {
-  const hex = Math.random().toString(16).slice(2, 8).toUpperCase().padStart(6, "0");
-  return `PAT-${hex}`;
-}
-
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -104,22 +99,6 @@ export default function RegisterScreen() {
       if (error) {
         setErrors({ general: error.message });
         return;
-      }
-
-      if (data.user) {
-        const { error: profileError } = await supabase.from("profiles").insert({
-          id: data.user.id,
-          full_name: trimmedFullName,
-          phone: trimmedPhone,
-          email: trimmedEmail,
-          role: "patient",
-          patient_code: generatePatientCode(),
-        });
-
-        if (profileError) {
-          setErrors({ general: profileError.message });
-          return;
-        }
       }
 
       if (data.session) {
