@@ -41,7 +41,7 @@ export default function NewPrescriptionScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.85,
         base64: false,
       });
@@ -86,7 +86,7 @@ export default function NewPrescriptionScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.85,
         base64: false,
       });

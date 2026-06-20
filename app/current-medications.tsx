@@ -110,7 +110,7 @@ export default function CurrentMedicationsScreen() {
       const message =
         error instanceof Error
           ? error.message
-          : "Unable to load medications from Supabase.";
+          : "Unable to load medications.";
 
       setLoadError(message);
 
@@ -234,9 +234,7 @@ export default function CurrentMedicationsScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>
-          Loading current medications from Supabase...
-        </Text>
+        <Text style={styles.loadingText}>Loading current medications...</Text>
       </View>
     );
   }
@@ -261,14 +259,14 @@ export default function CurrentMedicationsScreen() {
       <Text style={styles.title}>Current Medications</Text>
 
       <Text style={styles.subtitle}>
-        View medications saved from the live Supabase prescription schedule.
+        View medications saved from your prescription schedule.
       </Text>
 
       {loadError && (
         <View style={styles.warningCard}>
           <Ionicons name="warning" size={22} color="#f59e0b" />
           <Text style={styles.warningText}>
-            Supabase load warning: {loadError}.{" "}
+            Load warning: {loadError}.{" "}
             {loadedFromCache
               ? "Showing locally cached schedule."
               : "No local backup was found."}
@@ -284,7 +282,9 @@ export default function CurrentMedicationsScreen() {
 
           <View style={styles.liveTextBox}>
             <Text style={styles.liveTitle}>
-              {loadedFromCache ? "Local Backup Loaded" : "Supabase Live Data"}
+              {loadedFromCache
+                ? "Local Backup Loaded"
+                : "Saved Medication Data"}
             </Text>
             <Text style={styles.liveText}>{formatCreatedDate()}</Text>
           </View>
@@ -301,8 +301,7 @@ export default function CurrentMedicationsScreen() {
 
           <Text style={styles.emptyText}>
             Scan a prescription, review the extracted medication details, then
-            save the schedule to Supabase. The medications will appear here
-            after saving.
+            save the schedule. The medications will appear here after saving.
           </Text>
 
           <Pressable style={styles.primaryButton} onPress={goToScanner}>
@@ -407,7 +406,7 @@ export default function CurrentMedicationsScreen() {
         <Ionicons name="information-circle" size={20} color="#2563eb" />
         <Text style={styles.noteText}>
           This screen does not show demo medication data. It only shows
-          medications saved from Supabase or a local backup if Supabase loading
+          medications from your saved schedule or a local backup if loading
           fails.
         </Text>
       </View>

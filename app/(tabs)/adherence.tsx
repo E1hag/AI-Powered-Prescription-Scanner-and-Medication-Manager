@@ -125,7 +125,7 @@ export default function AdherenceScreen() {
       const message =
         error instanceof Error
           ? error.message
-          : "Unable to load adherence data from Supabase.";
+          : "Unable to load adherence data.";
 
       setLoadError(message);
 
@@ -274,7 +274,7 @@ export default function AdherenceScreen() {
         "Update Failed",
         error instanceof Error
           ? error.message
-          : "Unable to update the dose status in Supabase.",
+          : "Unable to update the dose status.",
       );
     } finally {
       setIsUpdatingDoseId(null);
@@ -314,7 +314,7 @@ export default function AdherenceScreen() {
 
     Alert.alert(
       "Reset Today's Doses",
-      "This will set all current doses back to Pending in Supabase.",
+      "This will set all current doses back to Pending.",
       [
         {
           text: "Cancel",
@@ -347,7 +347,7 @@ export default function AdherenceScreen() {
                 "Reset Failed",
                 error instanceof Error
                   ? error.message
-                  : "Unable to reset the schedule in Supabase.",
+                  : "Unable to reset the schedule.",
               );
             } finally {
               setIsUpdatingDoseId(null);
@@ -406,9 +406,7 @@ export default function AdherenceScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>
-          Loading Supabase adherence data...
-        </Text>
+        <Text style={styles.loadingText}>Loading adherence data...</Text>
       </View>
     );
   }
@@ -423,8 +421,7 @@ export default function AdherenceScreen() {
         <View style={styles.headerTextBox}>
           <Text style={styles.title}>Adherence</Text>
           <Text style={styles.subtitle}>
-            Track doses, view progress, and monitor your Supabase medication
-            history.
+            Track doses, view progress, and monitor your medication history.
           </Text>
         </View>
 
@@ -438,8 +435,7 @@ export default function AdherenceScreen() {
         <View style={styles.errorCard}>
           <Ionicons name="warning" size={22} color="#f59e0b" />
           <Text style={styles.errorText}>
-            Supabase load warning: {loadError}. Showing local cached data if
-            available.
+            Load warning: {loadError}. Showing local cached data if available.
           </Text>
         </View>
       )}
@@ -450,11 +446,11 @@ export default function AdherenceScreen() {
             <Ionicons name="document-text" size={34} color="#2563eb" />
           </View>
 
-          <Text style={styles.emptyTitle}>No Supabase Schedule Yet</Text>
+          <Text style={styles.emptyTitle}>No Saved Schedule Yet</Text>
 
           <Text style={styles.emptyText}>
             Scan a prescription, review the extracted medicines, create a
-            schedule, and save it to Supabase.
+            schedule, and save it.
           </Text>
 
           <Pressable style={styles.emptyButton} onPress={goToScanner}>
@@ -472,10 +468,10 @@ export default function AdherenceScreen() {
             </View>
 
             <View style={styles.liveTextBox}>
-              <Text style={styles.liveTitle}>Supabase Live Data</Text>
+              <Text style={styles.liveTitle}>Saved Medication Data</Text>
               <Text style={styles.liveText}>
                 This page is reading and updating the latest saved medication
-                schedule from Supabase.
+                schedule.
               </Text>
             </View>
           </View>

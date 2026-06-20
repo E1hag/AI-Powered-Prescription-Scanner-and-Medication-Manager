@@ -276,7 +276,7 @@ export default function SchedulePrescriptionScreen() {
 
       Alert.alert(
         "Schedule Saved",
-        "The prescription schedule has been saved to Supabase and is ready for adherence tracking.",
+        "The prescription schedule has been saved and is ready for adherence tracking.",
         [
           {
             text: "Go to Adherence",
@@ -290,10 +290,10 @@ export default function SchedulePrescriptionScreen() {
       );
     } catch (error) {
       Alert.alert(
-        "Supabase Save Failed",
+        "Save Failed",
         error instanceof Error
           ? error.message
-          : "Unable to save the medication schedule to Supabase. Please check your Supabase tables, RLS policies, and .env values.",
+          : "Unable to save the medication schedule. Please check your connection and try again.",
       );
     } finally {
       setIsSaving(false);
@@ -351,7 +351,7 @@ export default function SchedulePrescriptionScreen() {
         <Text style={styles.title}>Create Schedule</Text>
 
         <Text style={styles.subtitle}>
-          Set dose times before saving the scanned prescription to Supabase.
+          Set dose times before saving the scanned prescription.
         </Text>
 
         <View style={styles.connectedCard}>
@@ -360,10 +360,10 @@ export default function SchedulePrescriptionScreen() {
           </View>
 
           <View style={styles.connectedTextBox}>
-            <Text style={styles.connectedTitle}>Supabase Connected</Text>
+            <Text style={styles.connectedTitle}>Secure Save Ready</Text>
             <Text style={styles.connectedText}>
-              Saving this schedule will store the medication doses in the live
-              Supabase database and keep a local copy for quick loading.
+              Saving this schedule will store the medication doses securely and
+              keep a local copy for quick loading.
             </Text>
           </View>
         </View>
@@ -398,7 +398,7 @@ export default function SchedulePrescriptionScreen() {
             <View style={styles.summaryCard}>
               <Ionicons name="cloud-done" size={21} color="#2563eb" />
               <Text style={styles.summaryNumberSmall}>Live</Text>
-              <Text style={styles.summaryLabel}>Supabase</Text>
+              <Text style={styles.summaryLabel}>Saved</Text>
             </View>
           </View>
         )}
@@ -493,7 +493,7 @@ export default function SchedulePrescriptionScreen() {
         >
           <Ionicons name="cloud-upload" size={18} color="#ffffff" />
           <Text style={styles.saveButtonText}>
-            {isSaving ? "Saving to Supabase..." : "Save Schedule to Supabase"}
+            {isSaving ? "Saving..." : "Save Schedule"}
           </Text>
         </Pressable>
 
