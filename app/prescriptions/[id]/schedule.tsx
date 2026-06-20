@@ -16,6 +16,7 @@ import {
 
 import {
   MedicationDose,
+  refreshDrugInteractionResultsForSchedule,
   saveMedicationScheduleToSupabase,
 } from "@/src/services/medcoSupabaseService";
 
@@ -270,6 +271,16 @@ export default function SchedulePrescriptionScreen() {
 
       const savedSchedule =
         await saveMedicationScheduleToSupabase(cleanedDoses);
+      let interactionCheckWarning: string | null = null;
+
+      try {
+        await refreshDrugInteractionResultsForSchedule(savedSchedule);
+      } catch (error) {
+        interactionCheckWarning =
+          error instanceof Error
+            ? error.message
+            : "Unable to save drug interaction results.";
+      }
 
       const localSchedule: StoredMedicationSchedule = {
         id: savedSchedule.id,
@@ -284,7 +295,9 @@ export default function SchedulePrescriptionScreen() {
 
       Alert.alert(
         "Schedule Saved",
-        "The prescription schedule has been saved and is ready for adherence tracking.",
+        interactionCheckWarning
+          ? `The prescription schedule has been saved, but the drug interaction check could not be saved: ${interactionCheckWarning}`
+          : "The prescription schedule has been saved and is ready for adherence tracking.",
         [
           {
             text: "Go to Adherence",
@@ -321,6 +334,14 @@ export default function SchedulePrescriptionScreen() {
       time: "08:00 PM",
       instruction,
       status: "Pending",
+      ingredientA:
+        safeText(medication.ingredientA).trim() ||
+        safeText(medication.ingredient_a).trim() ||
+        medicationName,
+      ingredientB:
+        safeText(medication.ingredientB).trim() ||
+        safeText(medication.ingredient_b).trim() ||
+        null,
     };
 
     setScheduleDoses((currentDoses) => [...currentDoses, newDose]);

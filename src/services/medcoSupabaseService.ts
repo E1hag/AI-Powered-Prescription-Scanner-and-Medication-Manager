@@ -1,4 +1,12 @@
 import { supabase } from "@/lib/supabase";
+import {
+  DrugInteractionRecord,
+  InteractionSeverity,
+  buildIngredientFingerprint,
+  checkDrugInteractions,
+  getInteractionIngredientsForDose,
+  getInteractionIngredientsForDoses,
+} from "@/src/features/prescriptions/utils/drug-interactions";
 
 export type DoseStatus = "Pending" | "Taken" | "Missed" | "Snoozed";
 
@@ -70,6 +78,26 @@ export type TreatmentNote = {
   updatedAt: string | null;
 };
 
+export type DrugInteractionResult = DrugInteractionRecord & {
+  id: string;
+  patientId: string;
+  scheduleId: string | null;
+  ingredientFingerprint: string | null;
+  checkedAt: string | null;
+  source: string | null;
+  medicationA: string | null;
+  medicationB: string | null;
+  ingredientA: string | null;
+  ingredientB: string | null;
+};
+
+export type DrugInteractionRefreshResult = {
+  results: DrugInteractionResult[];
+  ingredientFingerprint: string;
+  checkedAt: string;
+  masterInteractionCount: number;
+};
+
 type SupabaseScheduleRow = {
   id: string;
   user_id: string | null;
@@ -126,6 +154,26 @@ type SupabaseTreatmentNoteRow = {
   note_type: string | null;
 };
 
+type SupabaseDrugInteractionResultRow = {
+  id: string;
+  patient_id: string;
+  drug_a: string;
+  drug_b: string;
+  severity: "low" | "moderate" | "high";
+  description: string | null;
+  recommendation: string | null;
+  checked_at: string | null;
+  source: string | null;
+  prescription_id: string | null;
+  schedule_id: string | null;
+  medication_a: string | null;
+  medication_b: string | null;
+  ingredient_a: string | null;
+  ingredient_b: string | null;
+  ingredient_fingerprint: string | null;
+  master_interaction_id: string | null;
+};
+
 function mapClinicianAccessRequest(
   request: SupabaseClinicianAccessRequestRow,
 ): ClinicianAccessRequest {
@@ -150,6 +198,79 @@ function mapTreatmentNote(note: SupabaseTreatmentNoteRow): TreatmentNote {
     createdAt: note.created_at,
     updatedAt: note.updated_at,
   };
+}
+
+function mapStoredInteractionSeverity(
+  severity: SupabaseDrugInteractionResultRow["severity"],
+): InteractionSeverity {
+  if (severity === "high") {
+    return "Severe";
+  }
+
+  if (severity === "low") {
+    return "Mild";
+  }
+
+  return "Moderate";
+}
+
+function mapInteractionSeverityToDatabase(severity: InteractionSeverity) {
+  if (severity === "Severe") {
+    return "high";
+  }
+
+  if (severity === "Mild") {
+    return "low";
+  }
+
+  return "moderate";
+}
+
+function mapDrugInteractionResult(
+  result: SupabaseDrugInteractionResultRow,
+): DrugInteractionResult {
+  return {
+    id: result.id,
+    patientId: result.patient_id,
+    scheduleId: result.schedule_id,
+    ingredientFingerprint: result.ingredient_fingerprint,
+    masterInteractionId: result.master_interaction_id,
+    drugA: result.drug_a,
+    drugB: result.drug_b,
+    severity: mapStoredInteractionSeverity(result.severity),
+    description: result.description ?? "",
+    recommendation: result.recommendation ?? "",
+    checkedAt: result.checked_at,
+    source: result.source,
+    medicationA: result.medication_a,
+    medicationB: result.medication_b,
+    ingredientA: result.ingredient_a,
+    ingredientB: result.ingredient_b,
+  };
+}
+
+function getMedicationNameForIngredient(
+  doses: MedicationDose[],
+  ingredient: string,
+) {
+  const normalizedIngredient = ingredient.trim().toLowerCase();
+
+  if (!normalizedIngredient) {
+    return null;
+  }
+
+  const matchingDose = doses.find((dose) => {
+    return getInteractionIngredientsForDose(dose).some((doseIngredient) => {
+      const normalizedDoseIngredient = doseIngredient.trim().toLowerCase();
+
+      return (
+        normalizedDoseIngredient.includes(normalizedIngredient) ||
+        normalizedIngredient.includes(normalizedDoseIngredient)
+      );
+    });
+  });
+
+  return matchingDose?.medicationName ?? null;
 }
 
 export async function getCurrentUserId() {
@@ -315,6 +436,103 @@ export async function getLatestMedicationScheduleFromSupabase(): Promise<Medicat
     id: data.id,
     createdAt: data.created_at,
     doses: data.doses,
+  };
+}
+
+export async function getDrugInteractionResultsForSchedule(
+  scheduleId: string,
+): Promise<DrugInteractionResult[]> {
+  const userId = await getCurrentUserId();
+
+  if (!userId || !scheduleId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("drug_interaction_results")
+    .select("*")
+    .eq("patient_id", userId)
+    .eq("schedule_id", scheduleId)
+    .order("checked_at", {
+      ascending: false,
+    })
+    .returns<SupabaseDrugInteractionResultRow[]>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data.map(mapDrugInteractionResult);
+}
+
+export async function refreshDrugInteractionResultsForSchedule(
+  schedule: MedicationSchedule,
+): Promise<DrugInteractionRefreshResult> {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    throw new Error("Please sign in before checking drug interactions.");
+  }
+
+  const ingredients = getInteractionIngredientsForDoses(schedule.doses);
+  const ingredientFingerprint = buildIngredientFingerprint(ingredients);
+  const checkedAt = new Date().toISOString();
+  const checkResult = await checkDrugInteractions(ingredients);
+
+  const { error: deleteError } = await supabase
+    .from("drug_interaction_results")
+    .delete()
+    .eq("patient_id", userId);
+
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  if (checkResult.interactions.length === 0) {
+    return {
+      results: [],
+      ingredientFingerprint,
+      checkedAt,
+      masterInteractionCount: checkResult.masterInteractionCount,
+    };
+  }
+
+  const rowsToInsert = checkResult.interactions.map((interaction) => {
+    return {
+      patient_id: userId,
+      schedule_id: schedule.id,
+      ingredient_fingerprint: ingredientFingerprint,
+      master_interaction_id: interaction.masterInteractionId ?? null,
+      drug_a: interaction.drugA,
+      drug_b: interaction.drugB,
+      severity: mapInteractionSeverityToDatabase(interaction.severity),
+      description: interaction.description,
+      recommendation: interaction.recommendation,
+      checked_at: checkedAt,
+      source: "drug_interactions_master",
+      prescription_id: null,
+      medication_a: getMedicationNameForIngredient(schedule.doses, interaction.drugA),
+      medication_b: getMedicationNameForIngredient(schedule.doses, interaction.drugB),
+      ingredient_a: interaction.drugA,
+      ingredient_b: interaction.drugB,
+    };
+  });
+
+  const { data, error: insertError } = await supabase
+    .from("drug_interaction_results")
+    .insert(rowsToInsert)
+    .select("*")
+    .returns<SupabaseDrugInteractionResultRow[]>();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return {
+    results: data.map(mapDrugInteractionResult),
+    ingredientFingerprint,
+    checkedAt,
+    masterInteractionCount: checkResult.masterInteractionCount,
   };
 }
 

@@ -12,13 +12,15 @@ import {
 } from "react-native";
 
 import {
-  checkDrugInteractions,
-  DrugInteractionRecord,
+  getInteractionIngredientsForDose,
 } from "@/src/features/prescriptions/utils/drug-interactions";
 import {
+  DrugInteractionResult,
   MedicationDose,
   MedicationSchedule,
+  getDrugInteractionResultsForSchedule,
   getLatestMedicationScheduleFromSupabase,
+  refreshDrugInteractionResultsForSchedule,
 } from "@/src/services/medcoSupabaseService";
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
@@ -41,19 +43,7 @@ const emptySchedule: MedicationSchedule = {
   doses: [],
 };
 
-function getDoseIngredients(dose: MedicationDose) {
-  const ingredients = [dose.ingredientA, dose.ingredientB]
-    .map((ingredient) => ingredient?.trim())
-    .filter((ingredient): ingredient is string => Boolean(ingredient));
-
-  if (ingredients.length > 0) {
-    return ingredients;
-  }
-
-  return dose.medicationName.trim() ? [dose.medicationName.trim()] : [];
-}
-
-function getSeverityColor(severity: DrugInteractionRecord["severity"]) {
+function getSeverityColor(severity: DrugInteractionResult["severity"]) {
   if (severity === "Severe") {
     return {
       background: "#fee2e2",
@@ -80,10 +70,15 @@ function getSeverityColor(severity: DrugInteractionRecord["severity"]) {
 export default function DrugInteractionsScreen() {
   const [schedule, setSchedule] = useState<MedicationSchedule>(emptySchedule);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingInteractions, setIsRefreshingInteractions] =
+    useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [interactionError, setInteractionError] = useState<string | null>(null);
-  const [interactions, setInteractions] = useState<DrugInteractionRecord[]>([]);
-  const [masterInteractionCount, setMasterInteractionCount] = useState(0);
+  const [interactions, setInteractions] = useState<DrugInteractionResult[]>([]);
+  const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
+  const [lastRefreshMasterCount, setLastRefreshMasterCount] = useState<
+    number | null
+  >(null);
   const [loadedFromCache, setLoadedFromCache] = useState(false);
 
   const cacheScheduleLocally = useCallback(async (latestSchedule: MedicationSchedule) => {
@@ -132,23 +127,65 @@ export default function DrugInteractionsScreen() {
     return backupSchedule;
   }, []);
 
-  const checkInteractionsForDoses = useCallback(async (doses: MedicationDose[]) => {
+  const refreshInteractionsForSchedule = useCallback(
+    async (scheduleToRefresh: MedicationSchedule, showSpinner: boolean) => {
+      if (!scheduleToRefresh.id) {
+        return;
+      }
+
+      try {
+        if (showSpinner) {
+          setIsRefreshingInteractions(true);
+        }
+
+        setInteractionError(null);
+
+        const refreshResult =
+          await refreshDrugInteractionResultsForSchedule(scheduleToRefresh);
+
+        setInteractions(refreshResult.results);
+        setLastCheckedAt(refreshResult.checkedAt);
+        setLastRefreshMasterCount(refreshResult.masterInteractionCount);
+      } catch (error) {
+        setInteractions([]);
+        setLastRefreshMasterCount(null);
+        setInteractionError(
+          error instanceof Error
+            ? error.message
+            : "Unable to refresh drug interaction results.",
+        );
+      } finally {
+        if (showSpinner) {
+          setIsRefreshingInteractions(false);
+        }
+      }
+    },
+    [],
+  );
+
+  const loadStoredInteractionResults = useCallback(async (scheduleId: string) => {
     try {
       setInteractionError(null);
 
-      const ingredients = doses.flatMap(getDoseIngredients);
-      const result = await checkDrugInteractions(ingredients);
+      const storedResults =
+        await getDrugInteractionResultsForSchedule(scheduleId);
 
-      setInteractions(result.interactions);
-      setMasterInteractionCount(result.masterInteractionCount);
+      setInteractions(storedResults);
+      setLastCheckedAt(storedResults[0]?.checkedAt ?? null);
+      setLastRefreshMasterCount(null);
+
+      return storedResults;
     } catch (error) {
       setInteractions([]);
-      setMasterInteractionCount(0);
+      setLastCheckedAt(null);
+      setLastRefreshMasterCount(null);
       setInteractionError(
         error instanceof Error
           ? error.message
-          : "Unable to read the drug interaction master list.",
+          : "Unable to load saved drug interaction results.",
       );
+
+      return [];
     }
   }, []);
 
@@ -164,14 +201,19 @@ export default function DrugInteractionsScreen() {
       if (!latestSchedule) {
         setSchedule(emptySchedule);
         setInteractions([]);
-        setMasterInteractionCount(0);
+        setLastCheckedAt(null);
+        setLastRefreshMasterCount(null);
         setLoadedFromCache(false);
         return;
       }
 
       setSchedule(latestSchedule);
       await cacheScheduleLocally(latestSchedule);
-      await checkInteractionsForDoses(latestSchedule.doses);
+      const storedResults = await loadStoredInteractionResults(latestSchedule.id);
+
+      if (storedResults.length === 0) {
+        await refreshInteractionsForSchedule(latestSchedule, false);
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -184,21 +226,34 @@ export default function DrugInteractionsScreen() {
         const backupSchedule = await loadLocalBackup();
 
         if (backupSchedule) {
-          await checkInteractionsForDoses(backupSchedule.doses);
+          const storedResults = await loadStoredInteractionResults(
+            backupSchedule.id,
+          );
+
+          if (storedResults.length === 0) {
+            await refreshInteractionsForSchedule(backupSchedule, false);
+          }
         } else {
           setInteractions([]);
-          setMasterInteractionCount(0);
+          setLastCheckedAt(null);
+          setLastRefreshMasterCount(null);
         }
       } catch {
         setSchedule(emptySchedule);
         setInteractions([]);
-        setMasterInteractionCount(0);
+        setLastCheckedAt(null);
+        setLastRefreshMasterCount(null);
         setLoadedFromCache(false);
       }
     } finally {
       setIsLoading(false);
     }
-  }, [cacheScheduleLocally, checkInteractionsForDoses, loadLocalBackup]);
+  }, [
+    cacheScheduleLocally,
+    loadLocalBackup,
+    loadStoredInteractionResults,
+    refreshInteractionsForSchedule,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -210,7 +265,7 @@ export default function DrugInteractionsScreen() {
     const grouped = new Map<string, CheckedMedication>();
 
     schedule.doses.forEach((dose) => {
-      const ingredients = getDoseIngredients(dose);
+      const ingredients = getInteractionIngredientsForDose(dose);
       const existing = grouped.get(dose.medicationId);
 
       if (existing) {
@@ -244,8 +299,12 @@ export default function DrugInteractionsScreen() {
     router.push("/prescriptions/new");
   };
 
-  const refreshInteractions = () => {
-    loadSchedule();
+  const refreshInteractions = async () => {
+    if (!schedule.id) {
+      return;
+    }
+
+    await refreshInteractionsForSchedule(schedule, true);
   };
 
   if (isLoading) {
@@ -253,7 +312,7 @@ export default function DrugInteractionsScreen() {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />
         <Text style={styles.loadingText}>
-          Recalculating drug interactions...
+          Looking for drug interactions
         </Text>
       </View>
     );
@@ -271,16 +330,22 @@ export default function DrugInteractionsScreen() {
         </Pressable>
 
         <Pressable style={styles.refreshButton} onPress={refreshInteractions}>
-          <Ionicons name="refresh" size={17} color="#2563eb" />
-          <Text style={styles.refreshButtonText}>Refresh</Text>
+          {isRefreshingInteractions ? (
+            <ActivityIndicator color="#2563eb" />
+          ) : (
+            <Ionicons name="refresh" size={17} color="#2563eb" />
+          )}
+          <Text style={styles.refreshButtonText}>
+            {isRefreshingInteractions ? "Checking" : "Refresh"}
+          </Text>
         </Pressable>
       </View>
 
       <Text style={styles.title}>Drug Interactions</Text>
 
       <Text style={styles.subtitle}>
-        Recalculates possible interactions from your saved medicines using the
-        live interaction master list.
+        Shows the latest saved interaction check for your current medication
+        schedule. Use Refresh to run the check again.
       </Text>
 
       {loadError && (
@@ -368,9 +433,20 @@ export default function DrugInteractionsScreen() {
                 Checked {checkedIngredients.length} ingredient
                 {checkedIngredients.length === 1 ? "" : "s"} from{" "}
                 {checkedMedications.length} saved medicine
-                {checkedMedications.length === 1 ? "" : "s"} against{" "}
-                {masterInteractionCount} master interaction
-                {masterInteractionCount === 1 ? "" : "s"}.
+                {checkedMedications.length === 1 ? "" : "s"}.
+                {lastCheckedAt
+                  ? ` Last checked ${new Date(lastCheckedAt).toLocaleString([], {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}.`
+                  : ""}
+                {lastRefreshMasterCount !== null
+                  ? ` Refreshed against ${lastRefreshMasterCount} master interaction${
+                      lastRefreshMasterCount === 1 ? "" : "s"
+                    }.`
+                  : ""}
               </Text>
             </View>
           </View>

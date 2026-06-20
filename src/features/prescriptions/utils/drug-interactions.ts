@@ -3,11 +3,18 @@ import { supabase } from "@/src/lib/supabase";
 export type InteractionSeverity = "Mild" | "Moderate" | "Severe";
 
 export type DrugInteractionRecord = {
+  masterInteractionId?: string | null;
   drugA: string;
   drugB: string;
   severity: InteractionSeverity;
   description: string;
   recommendation: string;
+};
+
+export type InteractionMedicationDose = {
+  medicationName: string;
+  ingredientA?: string | null;
+  ingredientB?: string | null;
 };
 
 export type DrugInteractionCheckResult = {
@@ -153,6 +160,38 @@ function normalizeIngredientName(name: string): string {
     .trim();
 }
 
+export function getInteractionIngredientsForDose(
+  dose: InteractionMedicationDose,
+) {
+  const ingredients = [dose.ingredientA, dose.ingredientB]
+    .map((ingredient) => ingredient?.trim())
+    .filter((ingredient): ingredient is string => Boolean(ingredient));
+
+  if (ingredients.length > 0) {
+    return ingredients;
+  }
+
+  return dose.medicationName.trim() ? [dose.medicationName.trim()] : [];
+}
+
+export function getInteractionIngredientsForDoses(
+  doses: InteractionMedicationDose[],
+) {
+  return doses.flatMap(getInteractionIngredientsForDose);
+}
+
+export function buildIngredientFingerprint(ingredientNames: string[]) {
+  return Array.from(
+    new Set(
+      ingredientNames
+        .map(normalizeIngredientName)
+        .filter((name) => name.length > 0),
+    ),
+  )
+    .sort()
+    .join("|");
+}
+
 function readString(row: DrugInteractionMasterRow, columnNames: string[]) {
   for (const columnName of columnNames) {
     const value = row[columnName];
@@ -203,6 +242,7 @@ function mapMasterRowToInteraction(
   }
 
   return {
+    masterInteractionId: readString(row, ["id"]) || null,
     drugA,
     drugB,
     severity: normalizeSeverity(readString(row, SEVERITY_COLUMNS)),
