@@ -27,6 +27,8 @@ export default function RootLayout() {
 
         <Stack.Screen name="medical-conditions" />
 
+        <Stack.Screen name="drug-interactions" />
+
         <Stack.Screen name="current-medications" />
 
         <Stack.Screen name="dose-reminders" />

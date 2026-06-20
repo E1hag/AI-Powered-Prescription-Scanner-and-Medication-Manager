@@ -432,6 +432,10 @@ export default function ProfileScreen() {
     router.push("/medical-conditions");
   };
 
+  const goToDrugInteractions = () => {
+    router.push("/drug-interactions");
+  };
+
   const goToScanner = () => {
     router.push("/prescriptions/new");
   };
@@ -814,6 +818,15 @@ export default function ProfileScreen() {
           title="Dose Reminders"
           subtitle="Manage medication reminder settings"
           onPress={goToDoseReminders}
+        />
+
+        <ProfileMenuItem
+          icon="git-compare"
+          iconColor="#dc2626"
+          iconBackground="#fee2e2"
+          title="Drug Interactions"
+          subtitle="Recalculate interactions from saved medicines"
+          onPress={goToDrugInteractions}
         />
 
         <ProfileMenuItem

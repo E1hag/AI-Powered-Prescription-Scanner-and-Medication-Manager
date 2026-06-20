@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { router, Tabs } from "expo-router";
 
 export default function TabLayout() {
   return (
@@ -34,6 +34,12 @@ export default function TabLayout() {
 
       <Tabs.Screen
         name="scan"
+        listeners={{
+          tabPress: (event: { preventDefault: () => void }) => {
+            event.preventDefault();
+            router.push("/prescriptions/new");
+          },
+        }}
         options={{
           title: "Scan",
           tabBarIcon: ({ color, size }) => (

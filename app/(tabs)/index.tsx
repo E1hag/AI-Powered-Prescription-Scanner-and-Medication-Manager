@@ -141,6 +141,10 @@ export default function HomeScreen() {
     router.push("/medical-conditions");
   };
 
+  const goToDrugInteractions = () => {
+    router.push("/drug-interactions");
+  };
+
   const goToAdherence = () => {
     router.push("/(tabs)/adherence");
   };
@@ -308,6 +312,16 @@ export default function HomeScreen() {
           </View>
           <Text style={styles.quickActionText}>Drug Safety</Text>
         </Pressable>
+
+        <Pressable
+          style={styles.quickActionCard}
+          onPress={goToDrugInteractions}
+        >
+          <View style={[styles.quickIconBox, styles.redIconBox]}>
+            <Ionicons name="git-compare" size={30} color="#dc2626" />
+          </View>
+          <Text style={styles.quickActionText}>Interactions</Text>
+        </Pressable>
       </View>
 
       <View style={styles.sectionHeaderRow}>
@@ -416,15 +430,15 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      <Pressable style={styles.safetyCard} onPress={goToDrugSafety}>
+      <Pressable style={styles.safetyCard} onPress={goToDrugInteractions}>
         <View style={styles.safetyIconCircle}>
           <Ionicons name="shield-checkmark" size={34} color="#16a34a" />
         </View>
 
         <View style={styles.safetyTextBox}>
-          <Text style={styles.safetyTitle}>All Good!</Text>
+          <Text style={styles.safetyTitle}>Drug Interaction Check</Text>
           <Text style={styles.safetySubtitle}>
-            No potential drug interactions found in your current medications.
+            Recalculate possible interactions from your current saved medicines.
           </Text>
         </View>
 
@@ -600,11 +614,13 @@ const styles = StyleSheet.create({
   },
   quickActionsRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 9,
     marginBottom: 25,
   },
   quickActionCard: {
-    flex: 1,
+    flexBasis: "31%",
+    flexGrow: 1,
     minHeight: 127,
     backgroundColor: "#ffffff",
     borderRadius: 18,
@@ -636,6 +652,9 @@ const styles = StyleSheet.create({
   },
   yellowIconBox: {
     backgroundColor: "#fef3c7",
+  },
+  redIconBox: {
+    backgroundColor: "#fee2e2",
   },
   quickActionText: {
     fontSize: 13,

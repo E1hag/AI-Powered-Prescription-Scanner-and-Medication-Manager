@@ -10,6 +10,8 @@ export type MedicationDose = {
   time: string;
   instruction: string;
   status: DoseStatus;
+  ingredientA?: string | null;
+  ingredientB?: string | null;
 };
 
 export type MedicationSchedule = {

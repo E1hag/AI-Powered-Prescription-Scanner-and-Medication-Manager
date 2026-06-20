@@ -211,26 +211,44 @@ export default function ReviewPrescriptionScreen() {
   const hasCheckedInteractionsRef = useRef(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     if (hasCheckedInteractionsRef.current) {
-      return;
+      return () => {
+        isMounted = false;
+      };
     }
 
     if (isDraftLoading || medications.length === 0) {
-      return;
+      return () => {
+        isMounted = false;
+      };
     }
 
     hasCheckedInteractionsRef.current = true;
 
-    const allIngredients = medications.flatMap((medication) => [
-      medication.ingredientA,
-      medication.ingredientB,
-    ]);
+    const checkInteractions = async () => {
+      try {
+        const allIngredients = medications.flatMap((medication) => [
+          medication.ingredientA,
+          medication.ingredientB,
+        ]);
 
-    const interactions = findAllDrugInteractions(allIngredients);
+        const interactions = await findAllDrugInteractions(allIngredients);
 
-    if (interactions.length > 0) {
-      showDrugInteractionAlert(interactions);
-    }
+        if (isMounted && interactions.length > 0) {
+          showDrugInteractionAlert(interactions);
+        }
+      } catch (error) {
+        console.log("Drug interaction check error:", error);
+      }
+    };
+
+    checkInteractions();
+
+    return () => {
+      isMounted = false;
+    };
   }, [medications, isDraftLoading]);
 
   useEffect(() => {

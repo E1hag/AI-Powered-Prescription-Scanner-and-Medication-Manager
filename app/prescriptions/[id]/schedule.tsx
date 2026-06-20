@@ -126,6 +126,14 @@ function buildDefaultSchedule(medications: MedicationResult[]): ScheduleDose[] {
       time: defaultTimes[index] ?? "08:00 AM",
       instruction,
       status: "Pending",
+      ingredientA:
+        safeText(medication.ingredientA).trim() ||
+        safeText(medication.ingredient_a).trim() ||
+        medicationName,
+      ingredientB:
+        safeText(medication.ingredientB).trim() ||
+        safeText(medication.ingredient_b).trim() ||
+        null,
     };
   });
 }
