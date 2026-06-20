@@ -28,12 +28,6 @@ export default function ScanScreen() {
     });
   };
 
-  const openSampleReview = () => {
-    router.push({
-      pathname: "/prescriptions/sample-review",
-    });
-  };
-
   return (
     <ScrollView
       style={styles.container}
@@ -93,16 +87,6 @@ export default function ScanScreen() {
           <Text style={styles.darkButtonText}>Upload Prescription</Text>
         </Pressable>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.sampleButton,
-            pressed && styles.pressedButton,
-          ]}
-          onPress={openSampleReview}
-        >
-          <Ionicons name="document-text" size={21} color="#2563eb" />
-          <Text style={styles.sampleButtonText}>Open Sample Review</Text>
-        </Pressable>
       </View>
 
       <View style={styles.workflowCard}>
@@ -274,21 +258,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "900",
     color: "#ffffff",
-  },
-  sampleButton: {
-    width: "100%",
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "#eff6ff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  sampleButtonText: {
-    fontSize: 16,
-    fontWeight: "900",
-    color: "#2563eb",
   },
   workflowCard: {
     backgroundColor: "#ffffff",
