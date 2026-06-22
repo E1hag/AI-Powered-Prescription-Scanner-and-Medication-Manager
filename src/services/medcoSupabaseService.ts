@@ -53,6 +53,13 @@ export type MedicalConditionProfile = {
   notes: string;
 };
 
+export type PatientProfileSummary = {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  patientCode: string | null;
+};
+
 export type ClinicianAccessRequestStatus =
   | "pending"
   | "approved"
@@ -62,6 +69,8 @@ export type ClinicianAccessRequest = {
   id: string;
   clinicianId: string;
   patientId: string;
+  clinicianName: string | null;
+  clinicianEmail: string | null;
   status: ClinicianAccessRequestStatus;
   requestedAt: string;
   respondedAt: string | null;
@@ -134,6 +143,13 @@ type SupabaseMedicalProfileRow = {
   updated_at: string;
 };
 
+type SupabasePatientProfileRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  patient_code: string | null;
+};
+
 type SupabaseClinicianAccessRequestRow = {
   id: string;
   clinician_id: string;
@@ -142,6 +158,12 @@ type SupabaseClinicianAccessRequestRow = {
   requested_at: string;
   responded_at: string | null;
   reason: string | null;
+};
+
+type SupabaseClinicianProfileRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
 };
 
 type SupabaseTreatmentNoteRow = {
@@ -176,11 +198,14 @@ type SupabaseDrugInteractionResultRow = {
 
 function mapClinicianAccessRequest(
   request: SupabaseClinicianAccessRequestRow,
+  clinicianProfile?: SupabaseClinicianProfileRow,
 ): ClinicianAccessRequest {
   return {
     id: request.id,
     clinicianId: request.clinician_id,
     patientId: request.patient_id,
+    clinicianName: clinicianProfile?.full_name?.trim() || null,
+    clinicianEmail: clinicianProfile?.email?.trim() || null,
     status: request.status,
     requestedAt: request.requested_at,
     respondedAt: request.responded_at,
@@ -283,6 +308,35 @@ export async function getCurrentUserId() {
   return data.user.id;
 }
 
+export async function getPatientProfileForCurrentUser(): Promise<PatientProfileSummary | null> {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id, full_name, email, patient_code")
+    .eq("id", userId)
+    .maybeSingle<SupabasePatientProfileRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    id: data.id,
+    fullName: data.full_name?.trim() || null,
+    email: data.email?.trim() || null,
+    patientCode: data.patient_code?.trim() || null,
+  };
+}
+
 export async function getClinicianAccessRequestsForPatient(): Promise<
   ClinicianAccessRequest[]
 > {
@@ -305,20 +359,44 @@ export async function getClinicianAccessRequestsForPatient(): Promise<
     throw new Error(error.message);
   }
 
-  return data.map(mapClinicianAccessRequest).sort((first, second) => {
-    if (first.status === "pending" && second.status !== "pending") {
-      return -1;
-    }
+  const clinicianIds = Array.from(
+    new Set(data.map((request) => request.clinician_id)),
+  );
+  const clinicianProfilesById = new Map<string, SupabaseClinicianProfileRow>();
 
-    if (first.status !== "pending" && second.status === "pending") {
-      return 1;
-    }
+  if (clinicianIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .in("id", clinicianIds)
+      .returns<SupabaseClinicianProfileRow[]>();
 
-    return (
-      new Date(second.requestedAt).getTime() -
-      new Date(first.requestedAt).getTime()
-    );
-  });
+    profiles?.forEach((profile) => {
+      clinicianProfilesById.set(profile.id, profile);
+    });
+  }
+
+  return data
+    .map((request) =>
+      mapClinicianAccessRequest(
+        request,
+        clinicianProfilesById.get(request.clinician_id),
+      ),
+    )
+    .sort((first, second) => {
+      if (first.status === "pending" && second.status !== "pending") {
+        return -1;
+      }
+
+      if (first.status !== "pending" && second.status === "pending") {
+        return 1;
+      }
+
+      return (
+        new Date(second.requestedAt).getTime() -
+        new Date(first.requestedAt).getTime()
+      );
+    });
 }
 
 async function respondToClinicianAccessRequest(
@@ -354,6 +432,10 @@ export async function approveClinicianAccessRequest(requestId: string) {
 }
 
 export async function denyClinicianAccessRequest(requestId: string) {
+  return respondToClinicianAccessRequest(requestId, "rejected");
+}
+
+export async function revokeClinicianAccessRequest(requestId: string) {
   return respondToClinicianAccessRequest(requestId, "rejected");
 }
 

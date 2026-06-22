@@ -4,11 +4,14 @@ import { supabase } from "@/src/lib/supabase";
 import {
   ClinicianAccessRequest,
   ClinicianAccessRequestStatus,
+  PatientProfileSummary,
   TreatmentNote,
   approveClinicianAccessRequest,
   denyClinicianAccessRequest,
   getClinicianAccessRequestsForPatient,
+  getPatientProfileForCurrentUser,
   getTreatmentNotesForPatient,
+  revokeClinicianAccessRequest,
 } from "@/src/services/medcoSupabaseService";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -20,6 +23,7 @@ import {
   LayoutChangeEvent,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -113,6 +117,12 @@ export default function ProfileScreen() {
   const [treatmentNotesError, setTreatmentNotesError] = useState<string | null>(
     null,
   );
+  const [patientProfile, setPatientProfile] =
+    useState<PatientProfileSummary | null>(null);
+  const [isLoadingPatientProfile, setIsLoadingPatientProfile] = useState(false);
+  const [patientProfileError, setPatientProfileError] = useState<string | null>(
+    null,
+  );
   const accountDisplay = useMemo(() => getAccountDisplay(user), [user]);
 
   const loadProfileData = useCallback(async () => {
@@ -192,6 +202,31 @@ export default function ProfileScreen() {
     }
   }, [user]);
 
+  const loadPatientProfile = useCallback(async () => {
+    if (!user) {
+      setPatientProfile(null);
+      setPatientProfileError(null);
+      return;
+    }
+
+    try {
+      setIsLoadingPatientProfile(true);
+      setPatientProfileError(null);
+
+      const profile = await getPatientProfileForCurrentUser();
+      setPatientProfile(profile);
+    } catch (error) {
+      setPatientProfileError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load your patient code.",
+      );
+      setPatientProfile(null);
+    } finally {
+      setIsLoadingPatientProfile(false);
+    }
+  }, [user]);
+
   const loadTreatmentNotes = useCallback(async () => {
     if (!user) {
       setTreatmentNotes([]);
@@ -233,6 +268,7 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       loadProfileData();
+      loadPatientProfile();
       loadClinicianAccessRequests();
       loadTreatmentNotes();
 
@@ -242,6 +278,7 @@ export default function ProfileScreen() {
       }
     }, [
       loadClinicianAccessRequests,
+      loadPatientProfile,
       loadProfileData,
       loadTreatmentNotes,
       scrollTo,
@@ -313,6 +350,31 @@ export default function ProfileScreen() {
     }
   };
 
+  const patientCode = patientProfile?.patientCode ?? null;
+
+  const sharePatientCode = async () => {
+    if (!patientCode) {
+      Alert.alert(
+        "Patient Code Unavailable",
+        "No patient code is available for this account yet.",
+      );
+      return;
+    }
+
+    try {
+      await Share.share({
+        message: `My MEDCO patient code is ${patientCode}.`,
+      });
+    } catch (error) {
+      Alert.alert(
+        "Unable to Share",
+        error instanceof Error
+          ? error.message
+          : "Could not open the share options.",
+      );
+    }
+  };
+
   const wasUpdatedAfterCreation = (note: TreatmentNote) => {
     if (!note.updatedAt) {
       return false;
@@ -337,6 +399,31 @@ export default function ProfileScreen() {
     }
 
     return `${clinicianId.slice(0, 8)}...${clinicianId.slice(-4)}`;
+  };
+
+  const getClinicianDisplayName = (request: ClinicianAccessRequest) => {
+    return (
+      request.clinicianName?.trim() ||
+      `Clinician ${shortenClinicianId(request.clinicianId)}`
+    );
+  };
+
+  const getClinicianRequestMeta = (request: ClinicianAccessRequest) => {
+    const requestedDate = `Requested ${formatAccessRequestDate(
+      request.requestedAt,
+    )}`;
+
+    if (request.clinicianEmail?.trim()) {
+      return `${request.clinicianEmail.trim()} - ${requestedDate}`;
+    }
+
+    if (request.clinicianName?.trim()) {
+      return `Clinician ${shortenClinicianId(
+        request.clinicianId,
+      )} - ${requestedDate}`;
+    }
+
+    return requestedDate;
   };
 
   const getAccessStatusStyles = (status: ClinicianAccessRequestStatus) => {
@@ -372,22 +459,29 @@ export default function ProfileScreen() {
 
   const respondToAccessRequest = (
     request: ClinicianAccessRequest,
-    nextStatus: "approved" | "rejected",
+    action: "approve" | "deny" | "revoke",
   ) => {
-    const isApproval = nextStatus === "approved";
+    const isApproval = action === "approve";
+    const isRevoke = action === "revoke";
 
     Alert.alert(
-      isApproval ? "Approve Request" : "Deny Request",
       isApproval
-        ? "This clinician will be able to read your adherence schedule and history."
-        : "This clinician will not be able to access your adherence logs.",
+        ? "Approve Request"
+        : isRevoke
+          ? "Revoke Access"
+          : "Deny Request",
+      isApproval
+        ? "This clinician will be able to read your adherence schedule, history, and treatment notes."
+        : isRevoke
+          ? "This clinician will no longer be able to access your shared medication information."
+          : "This clinician will not be able to access your adherence logs.",
       [
         {
           text: "Cancel",
           style: "cancel",
         },
         {
-          text: isApproval ? "Approve" : "Deny",
+          text: isApproval ? "Approve" : isRevoke ? "Revoke" : "Deny",
           style: isApproval ? "default" : "destructive",
           onPress: async () => {
             try {
@@ -395,6 +489,8 @@ export default function ProfileScreen() {
 
               if (isApproval) {
                 await approveClinicianAccessRequest(request.id);
+              } else if (isRevoke) {
+                await revokeClinicianAccessRequest(request.id);
               } else {
                 await denyClinicianAccessRequest(request.id);
               }
@@ -524,6 +620,56 @@ export default function ProfileScreen() {
         <Pressable style={styles.editButton} onPress={goToPersonalDetails}>
           <Ionicons name="create-outline" size={20} color="#2563eb" />
         </Pressable>
+      </View>
+
+      <View style={styles.patientCodeCard}>
+        <View style={styles.patientCodeHeader}>
+          <View style={styles.patientCodeIconCircle}>
+            <Ionicons name="key" size={22} color="#2563eb" />
+          </View>
+
+          <View style={styles.patientCodeTextBox}>
+            <Text style={styles.patientCodeLabel}>Patient Code</Text>
+            <Text style={styles.patientCodeHelp}>
+              Share this code with a clinician so they can request access.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.patientCodeValueRow}>
+          <Text style={styles.patientCodeValue}>
+            {isLoadingPatientProfile
+              ? "Loading..."
+              : patientCode || "No code available"}
+          </Text>
+
+          <Pressable
+            style={[
+              styles.shareCodeButton,
+              !patientCode && styles.disabledButton,
+            ]}
+            onPress={sharePatientCode}
+            disabled={!patientCode}
+          >
+            <Ionicons
+              name="share-outline"
+              size={18}
+              color={patientCode ? "#ffffff" : "#94a3b8"}
+            />
+            <Text
+              style={[
+                styles.shareCodeText,
+                !patientCode && styles.shareCodeTextDisabled,
+              ]}
+            >
+              Share
+            </Text>
+          </Pressable>
+        </View>
+
+        {patientProfileError ? (
+          <Text style={styles.patientCodeError}>{patientProfileError}</Text>
+        ) : null}
       </View>
 
       {!hasSavedSchedule && (
@@ -661,10 +807,10 @@ export default function ProfileScreen() {
 
                 <View style={styles.accessRequestTextBox}>
                   <Text style={styles.accessClinicianName}>
-                    Clinician {shortenClinicianId(request.clinicianId)}
+                    {getClinicianDisplayName(request)}
                   </Text>
                   <Text style={styles.accessRequestedAt}>
-                    Requested {formatAccessRequestDate(request.requestedAt)}
+                    {getClinicianRequestMeta(request)}
                   </Text>
                 </View>
 
@@ -693,7 +839,7 @@ export default function ProfileScreen() {
                       styles.denyAccessButton,
                       isUpdating && styles.disabledButton,
                     ]}
-                    onPress={() => respondToAccessRequest(request, "rejected")}
+                    onPress={() => respondToAccessRequest(request, "deny")}
                     disabled={isUpdating}
                   >
                     <Text style={styles.denyAccessText}>
@@ -707,11 +853,29 @@ export default function ProfileScreen() {
                       styles.approveAccessButton,
                       isUpdating && styles.disabledButton,
                     ]}
-                    onPress={() => respondToAccessRequest(request, "approved")}
+                    onPress={() => respondToAccessRequest(request, "approve")}
                     disabled={isUpdating}
                   >
                     <Text style={styles.approveAccessText}>
                       {isUpdating ? "Updating..." : "Approve"}
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+
+              {request.status === "approved" ? (
+                <View style={styles.accessActionsRow}>
+                  <Pressable
+                    style={[
+                      styles.accessActionButton,
+                      styles.revokeAccessButton,
+                      isUpdating && styles.disabledButton,
+                    ]}
+                    onPress={() => respondToAccessRequest(request, "revoke")}
+                    disabled={isUpdating}
+                  >
+                    <Text style={styles.revokeAccessText}>
+                      {isUpdating ? "Updating..." : "Revoke Access"}
                     </Text>
                   </Pressable>
                 </View>
@@ -1032,6 +1196,86 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  patientCodeCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 15,
+    marginBottom: 14,
+    shadowColor: "#000000",
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  patientCodeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    marginBottom: 12,
+  },
+  patientCodeIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#dbeafe",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  patientCodeTextBox: {
+    flex: 1,
+  },
+  patientCodeLabel: {
+    fontSize: 16,
+    fontWeight: "900",
+    color: "#0f172a",
+    marginBottom: 3,
+  },
+  patientCodeHelp: {
+    fontSize: 12.8,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#64748b",
+  },
+  patientCodeValueRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  patientCodeValue: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 14,
+    backgroundColor: "#f8fafc",
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    fontSize: 17,
+    fontWeight: "900",
+    color: "#0f172a",
+  },
+  shareCodeButton: {
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    backgroundColor: "#2563eb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  shareCodeText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: "#ffffff",
+  },
+  shareCodeTextDisabled: {
+    color: "#94a3b8",
+  },
+  patientCodeError: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#b45309",
+    marginTop: 9,
+  },
   noticeCard: {
     backgroundColor: "#dbeafe",
     borderRadius: 18,
@@ -1347,6 +1591,14 @@ const styles = StyleSheet.create({
   },
   approveAccessText: {
     color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  revokeAccessButton: {
+    backgroundColor: "#fee2e2",
+  },
+  revokeAccessText: {
+    color: "#dc2626",
     fontSize: 14,
     fontWeight: "900",
   },
