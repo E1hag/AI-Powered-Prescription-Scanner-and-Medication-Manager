@@ -38,6 +38,22 @@ const emptySchedule: MedicationSchedule = {
   doses: [],
 };
 
+function getDoseIndicator(dose: MedicationDose) {
+  if (dose.isPrn) {
+    return "As needed";
+  }
+
+  if (
+    typeof dose.doseIndex === "number" &&
+    typeof dose.totalDailyDoses === "number" &&
+    dose.totalDailyDoses > 1
+  ) {
+    return `Dose ${dose.doseIndex} of ${dose.totalDailyDoses}`;
+  }
+
+  return null;
+}
+
 export default function AdherenceScreen() {
   const [schedule, setSchedule] = useState<MedicationSchedule>(emptySchedule);
   const [history, setHistory] = useState<AdherenceHistoryItem[]>([]);
@@ -584,6 +600,7 @@ export default function AdherenceScreen() {
             const statusStyle = getStatusStyle(dose.status);
             const isUpdating =
               isUpdatingDoseId === dose.id || isUpdatingDoseId === "reset-all";
+            const doseIndicator = getDoseIndicator(dose);
 
             return (
               <View key={dose.id} style={styles.doseCard}>
@@ -593,6 +610,12 @@ export default function AdherenceScreen() {
                     <Text style={styles.doseMeta}>
                       {dose.dosage} • {dose.time}
                     </Text>
+                    {doseIndicator ? (
+                      <Text style={styles.doseIndicator}>
+                        {doseIndicator}
+                        {dose.frequency ? ` • ${dose.frequency}` : ""}
+                      </Text>
+                    ) : null}
                     <Text style={styles.doseInstruction}>
                       {dose.instruction}
                     </Text>
@@ -1091,6 +1114,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#64748b",
     marginBottom: 8,
+  },
+  doseIndicator: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "800",
+    color: "#2563eb",
+    marginTop: -3,
+    marginBottom: 7,
   },
   doseInstruction: {
     fontSize: 14,

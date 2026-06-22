@@ -18,6 +18,11 @@ export type MedicationDose = {
   time: string;
   instruction: string;
   status: DoseStatus;
+  frequency?: string | null;
+  duration?: string | null;
+  doseIndex?: number | null;
+  totalDailyDoses?: number | null;
+  isPrn?: boolean | null;
   ingredientA?: string | null;
   ingredientB?: string | null;
 };

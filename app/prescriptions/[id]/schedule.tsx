@@ -74,6 +74,116 @@ function getMedicationInstruction(medication: MedicationResult) {
   );
 }
 
+type ParsedFrequency = {
+  dailyDoseCount: number;
+  isPrn: boolean;
+};
+
+const NUMBER_WORDS: Record<string, number> = {
+  one: 1,
+  once: 1,
+  two: 2,
+  twice: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+};
+
+function parseDailyDoseCount(medication: MedicationResult): ParsedFrequency {
+  const frequencyText = safeText(medication.frequency).toLowerCase();
+  const instructionText = getMedicationInstruction(medication).toLowerCase();
+  const combinedText = `${frequencyText} ${instructionText}`.trim();
+
+  if (/\b(prn|as needed|when needed|if needed)\b/.test(combinedText)) {
+    return {
+      dailyDoseCount: 1,
+      isPrn: true,
+    };
+  }
+
+  if (/\b(qid|four times|4\s*(x|times)?\s*(a\s*)?(day|daily|per day))\b/.test(combinedText)) {
+    return {
+      dailyDoseCount: 4,
+      isPrn: false,
+    };
+  }
+
+  if (/\b(tid|three times|3\s*(x|times)?\s*(a\s*)?(day|daily|per day))\b/.test(combinedText)) {
+    return {
+      dailyDoseCount: 3,
+      isPrn: false,
+    };
+  }
+
+  if (/\b(bid|bd|twice|two times|2\s*(x|times)?\s*(a\s*)?(day|daily|per day))\b/.test(combinedText)) {
+    return {
+      dailyDoseCount: 2,
+      isPrn: false,
+    };
+  }
+
+  if (/\b(od|qd|daily|once|one time|1\s*(x|time)?\s*(a\s*)?(day|daily|per day))\b/.test(combinedText)) {
+    return {
+      dailyDoseCount: 1,
+      isPrn: false,
+    };
+  }
+
+  const numericMatch = combinedText.match(
+    /\b([1-6])\s*(?:x|times?|per)?\s*(?:a\s*)?(?:day|daily|per day)\b/,
+  );
+
+  if (numericMatch?.[1]) {
+    return {
+      dailyDoseCount: Math.min(Number(numericMatch[1]), 6),
+      isPrn: false,
+    };
+  }
+
+  const wordMatch = combinedText.match(
+    /\b(one|once|two|twice|three|four|five|six)\b.*\b(day|daily|per day)\b/,
+  );
+
+  if (wordMatch?.[1] && NUMBER_WORDS[wordMatch[1]]) {
+    return {
+      dailyDoseCount: NUMBER_WORDS[wordMatch[1]],
+      isPrn: false,
+    };
+  }
+
+  return {
+    dailyDoseCount: 1,
+    isPrn: false,
+  };
+}
+
+function getSuggestedDoseTimes(dailyDoseCount: number, isPrn: boolean) {
+  if (isPrn) {
+    return ["As needed"];
+  }
+
+  const count = Math.max(1, Math.min(dailyDoseCount, 6));
+
+  const timeTemplates: Record<number, string[]> = {
+    1: ["08:00 AM"],
+    2: ["08:00 AM", "08:00 PM"],
+    3: ["08:00 AM", "02:00 PM", "08:00 PM"],
+    4: ["08:00 AM", "12:00 PM", "04:00 PM", "08:00 PM"],
+    5: ["06:00 AM", "10:00 AM", "02:00 PM", "06:00 PM", "10:00 PM"],
+    6: [
+      "06:00 AM",
+      "10:00 AM",
+      "02:00 PM",
+      "06:00 PM",
+      "10:00 PM",
+      "02:00 AM",
+    ],
+  };
+
+  return timeTemplates[count] ?? timeTemplates[1];
+}
+
 function normalizeParsedMedication(
   medication: Partial<MedicationResult>,
   index: number,
@@ -112,21 +222,31 @@ function normalizeParsedMedication(
 }
 
 function buildDefaultSchedule(medications: MedicationResult[]): ScheduleDose[] {
-  const defaultTimes = ["08:00 AM", "02:00 PM", "08:00 PM", "10:00 PM"];
-
-  return medications.map((medication, index) => {
+  return medications.flatMap((medication, index) => {
     const medicationName = getMedicationName(medication);
     const dosage = safeText(medication.dosage).trim();
     const instruction = getMedicationInstruction(medication);
+    const frequency = safeText(medication.frequency).trim();
+    const duration = safeText(medication.duration).trim();
+    const parsedFrequency = parseDailyDoseCount(medication);
+    const suggestedTimes = getSuggestedDoseTimes(
+      parsedFrequency.dailyDoseCount,
+      parsedFrequency.isPrn,
+    );
 
-    return {
-      id: `dose-${safeText(medication.id) || index}-${Date.now()}-${index}`,
+    return suggestedTimes.map((time, doseIndex) => ({
+      id: `dose-${safeText(medication.id) || index}-${Date.now()}-${doseIndex}`,
       medicationId: safeText(medication.id) || `med-${index + 1}`,
       medicationName,
       dosage,
-      time: defaultTimes[index] ?? "08:00 AM",
+      time,
       instruction,
       status: "Pending",
+      frequency,
+      duration,
+      doseIndex: doseIndex + 1,
+      totalDailyDoses: suggestedTimes.length,
+      isPrn: parsedFrequency.isPrn,
       ingredientA:
         safeText(medication.ingredientA).trim() ||
         safeText(medication.ingredient_a).trim() ||
@@ -135,7 +255,7 @@ function buildDefaultSchedule(medications: MedicationResult[]): ScheduleDose[] {
         safeText(medication.ingredientB).trim() ||
         safeText(medication.ingredient_b).trim() ||
         null,
-    };
+    }));
   });
 }
 
@@ -266,21 +386,20 @@ export default function SchedulePrescriptionScreen() {
             safeText(dose.instruction).trim() ||
             "Follow prescription instructions",
           status: "Pending",
+          frequency: safeText(dose.frequency).trim() || null,
+          duration: safeText(dose.duration).trim() || null,
+          doseIndex:
+            typeof dose.doseIndex === "number" ? dose.doseIndex : index + 1,
+          totalDailyDoses:
+            typeof dose.totalDailyDoses === "number"
+              ? dose.totalDailyDoses
+              : null,
+          isPrn: Boolean(dose.isPrn),
         };
       });
 
       const savedSchedule =
         await saveMedicationScheduleToSupabase(cleanedDoses);
-      let interactionCheckWarning: string | null = null;
-
-      try {
-        await refreshDrugInteractionResultsForSchedule(savedSchedule);
-      } catch (error) {
-        interactionCheckWarning =
-          error instanceof Error
-            ? error.message
-            : "Unable to save drug interaction results.";
-      }
 
       const localSchedule: StoredMedicationSchedule = {
         id: savedSchedule.id,
@@ -293,11 +412,17 @@ export default function SchedulePrescriptionScreen() {
         JSON.stringify(localSchedule),
       );
 
+      void refreshDrugInteractionResultsForSchedule(savedSchedule).catch(
+        (error) => {
+          console.log("Drug interaction refresh after schedule save failed:", {
+            error,
+          });
+        },
+      );
+
       Alert.alert(
         "Schedule Saved",
-        interactionCheckWarning
-          ? `The prescription schedule has been saved, but the drug interaction check could not be saved: ${interactionCheckWarning}`
-          : "The prescription schedule has been saved and is ready for adherence tracking.",
+        "The prescription schedule has been saved and is ready for adherence tracking. Drug interaction results will update in the background.",
         [
           {
             text: "Go to Adherence",
@@ -325,15 +450,37 @@ export default function SchedulePrescriptionScreen() {
     const medicationName = getMedicationName(medication);
     const dosage = safeText(medication.dosage).trim();
     const instruction = getMedicationInstruction(medication);
+    const medicationId = safeText(medication.id) || `med-${Date.now()}`;
+    const existingDoseCount = scheduleDoses.filter((dose) => {
+      return dose.medicationId === medicationId;
+    }).length;
+    const parsedFrequency = parseDailyDoseCount(medication);
+    const targetDoseCount = Math.max(
+      existingDoseCount + 1,
+      parsedFrequency.dailyDoseCount,
+    );
+    const suggestedTimes = getSuggestedDoseTimes(
+      targetDoseCount,
+      parsedFrequency.isPrn,
+    );
+    const nextTime =
+      suggestedTimes[existingDoseCount] ||
+      suggestedTimes[suggestedTimes.length - 1] ||
+      "08:00 PM";
 
     const newDose: ScheduleDose = {
       id: `dose-${safeText(medication.id) || Date.now()}-${Date.now()}`,
-      medicationId: safeText(medication.id) || `med-${Date.now()}`,
+      medicationId,
       medicationName,
       dosage,
-      time: "08:00 PM",
+      time: nextTime,
       instruction,
       status: "Pending",
+      frequency: safeText(medication.frequency).trim(),
+      duration: safeText(medication.duration).trim(),
+      doseIndex: existingDoseCount + 1,
+      totalDailyDoses: targetDoseCount,
+      isPrn: parsedFrequency.isPrn,
       ingredientA:
         safeText(medication.ingredientA).trim() ||
         safeText(medication.ingredient_a).trim() ||
@@ -344,7 +491,18 @@ export default function SchedulePrescriptionScreen() {
         null,
     };
 
-    setScheduleDoses((currentDoses) => [...currentDoses, newDose]);
+    setScheduleDoses((currentDoses) => {
+      return [...currentDoses, newDose].map((dose) => {
+        if (dose.medicationId !== medicationId) {
+          return dose;
+        }
+
+        return {
+          ...dose,
+          totalDailyDoses: targetDoseCount,
+        };
+      });
+    });
   };
 
   const removeDose = (doseId: string) => {
@@ -448,6 +606,19 @@ export default function SchedulePrescriptionScreen() {
                 </Text>
                 <Text style={styles.medicationDosage}>
                   {safeText(dose.dosage).trim() || "No dosage"}
+                </Text>
+                <Text style={styles.doseScheduleMeta}>
+                  {dose.isPrn
+                    ? "As-needed dose"
+                    : `Dose ${dose.doseIndex ?? index + 1} of ${
+                        dose.totalDailyDoses ?? 1
+                      } today`}
+                  {safeText(dose.frequency).trim()
+                    ? ` - ${safeText(dose.frequency).trim()}`
+                    : ""}
+                  {safeText(dose.duration).trim()
+                    ? ` for ${safeText(dose.duration).trim()}`
+                    : ""}
                 </Text>
               </View>
 
@@ -716,6 +887,13 @@ const styles = StyleSheet.create({
     color: "#64748b",
     fontWeight: "700",
     marginTop: 2,
+  },
+  doseScheduleMeta: {
+    fontSize: 12.4,
+    color: "#94a3b8",
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 3,
   },
   pendingBadge: {
     backgroundColor: "#e2e8f0",
