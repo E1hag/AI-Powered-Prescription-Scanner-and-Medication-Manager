@@ -26,6 +26,8 @@ import {
   DoseDisplayStatus,
   getDoseIndicator,
   getLocalDateKey,
+  getSnoozeCountForDoseOnDate,
+  MAX_DAILY_SNOOZES_PER_DOSE,
 } from "@/src/features/adherence/utils/daily-adherence";
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
@@ -281,6 +283,22 @@ export default function AdherenceScreen() {
   };
 
   const confirmDoseAction = (dose: MedicationDose, nextStatus: DoseStatus) => {
+    if (nextStatus === "Snoozed") {
+      const snoozeCount = getSnoozeCountForDoseOnDate(
+        history,
+        dose.id,
+        todayDateKey,
+      );
+
+      if (snoozeCount >= MAX_DAILY_SNOOZES_PER_DOSE) {
+        Alert.alert(
+          "Snooze Limit Reached",
+          "This dose has already been snoozed 3 times today. Please mark it as Taken or Missed.",
+        );
+        return;
+      }
+    }
+
     const actionText =
       nextStatus === "Taken"
         ? "mark this dose as Taken"
@@ -618,6 +636,13 @@ export default function AdherenceScreen() {
             const isUpdating =
               isUpdatingDoseId === dose.id || isUpdatingDoseId === "reset-all";
             const doseIndicator = getDoseIndicator(dose);
+            const snoozeCount = getSnoozeCountForDoseOnDate(
+              history,
+              dose.id,
+              todayDateKey,
+            );
+            const hasReachedSnoozeLimit =
+              snoozeCount >= MAX_DAILY_SNOOZES_PER_DOSE;
 
             return (
               <View key={dose.id} style={styles.doseCard}>
@@ -679,12 +704,15 @@ export default function AdherenceScreen() {
                     style={[
                       styles.doseActionButton,
                       styles.snoozeButton,
-                      isUpdating && styles.disabledButton,
+                      (isUpdating || hasReachedSnoozeLimit) &&
+                        styles.disabledButton,
                     ]}
                     onPress={() => confirmDoseAction(dose, "Snoozed")}
-                    disabled={isUpdating}
+                    disabled={isUpdating || hasReachedSnoozeLimit}
                   >
-                    <Text style={styles.doseActionButtonText}>Snooze</Text>
+                    <Text style={styles.doseActionButtonText}>
+                      {hasReachedSnoozeLimit ? "Limit Reached" : "Snooze"}
+                    </Text>
                   </Pressable>
                 </View>
               </View>

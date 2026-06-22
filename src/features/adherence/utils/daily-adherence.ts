@@ -15,6 +15,7 @@ export type DailyMedicationDose = MedicationDose & {
 const DUE_WINDOW_MINUTES = 30;
 const MISSED_AFTER_MINUTES = 120;
 const SNOOZE_MINUTES = 30;
+export const MAX_DAILY_SNOOZES_PER_DOSE = 3;
 
 export function getLocalDateKey(date: Date) {
   const year = date.getFullYear();
@@ -51,6 +52,20 @@ export function getLatestDoseActionsForDate(
   });
 
   return latestActionsByDoseId;
+}
+
+export function getSnoozeCountForDoseOnDate(
+  history: AdherenceHistoryItem[],
+  doseId: string,
+  dateKey: string,
+) {
+  return history.filter((item) => {
+    return (
+      item.doseId === doseId &&
+      item.action === "Snoozed" &&
+      getHistoryDateKey(item) === dateKey
+    );
+  }).length;
 }
 
 function getDateForTime(dateKey: string, timeText: string) {
