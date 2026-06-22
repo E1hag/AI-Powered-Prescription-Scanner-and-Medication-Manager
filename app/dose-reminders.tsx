@@ -12,22 +12,13 @@ import {
   View,
 } from "react-native";
 
-type DoseStatus = "Pending" | "Taken" | "Missed" | "Snoozed";
-
-type ScheduleDose = {
-  id: string;
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  time: string;
-  instruction: string;
-  status: DoseStatus;
-};
+import { getDoseIndicator } from "@/src/features/adherence/utils/daily-adherence";
+import { MedicationDose } from "@/src/services/medcoSupabaseService";
 
 type StoredMedicationSchedule = {
   id: string;
   createdAt: string;
-  doses: ScheduleDose[];
+  doses: MedicationDose[];
 };
 
 type ReminderItem = {
@@ -37,13 +28,17 @@ type ReminderItem = {
   dosage: string;
   time: string;
   instruction: string;
+  doseIndicator: string | null;
+  frequency: string | null;
+  duration: string | null;
+  isPrn: boolean | null;
   isEnabled: boolean;
 };
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
 const MEDCO_REMINDERS_STORAGE_KEY = "MEDCO_DOSE_REMINDERS";
 
-const defaultDoses: ScheduleDose[] = [
+const defaultDoses: MedicationDose[] = [
   {
     id: "default-dose-1",
     medicationId: "default-med-1",
@@ -74,7 +69,7 @@ const defaultDoses: ScheduleDose[] = [
 ];
 
 function buildReminderItemsFromDoses(
-  doses: ScheduleDose[],
+  doses: MedicationDose[],
   previousReminders: ReminderItem[],
 ): ReminderItem[] {
   return doses.map((dose) => {
@@ -89,13 +84,17 @@ function buildReminderItemsFromDoses(
       dosage: dose.dosage,
       time: dose.time,
       instruction: dose.instruction,
+      doseIndicator: getDoseIndicator(dose),
+      frequency: dose.frequency?.trim() || null,
+      duration: dose.duration?.trim() || null,
+      isPrn: Boolean(dose.isPrn),
       isEnabled: previousReminder?.isEnabled ?? true,
     };
   });
 }
 
 export default function DoseRemindersScreen() {
-  const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
+  const [doses, setDoses] = useState<MedicationDose[]>(defaultDoses);
   const [reminders, setReminders] = useState<ReminderItem[]>([]);
   const [hasSavedSchedule, setHasSavedSchedule] = useState(false);
   const [scheduleCreatedAt, setScheduleCreatedAt] = useState<string | null>(
@@ -427,6 +426,19 @@ export default function DoseRemindersScreen() {
             <Text style={styles.nextReminderMeta}>
               {upcomingReminder.dosage} • {upcomingReminder.time}
             </Text>
+            {upcomingReminder.doseIndicator || upcomingReminder.frequency ? (
+              <Text style={styles.nextReminderSchedule}>
+                {[
+                  upcomingReminder.doseIndicator,
+                  upcomingReminder.frequency,
+                  upcomingReminder.duration
+                    ? `for ${upcomingReminder.duration}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" • ")}
+              </Text>
+            ) : null}
             <Text style={styles.nextReminderInstruction}>
               {upcomingReminder.instruction}
             </Text>
@@ -504,6 +516,17 @@ export default function DoseRemindersScreen() {
               <Text style={styles.reminderMeta}>
                 {reminder.dosage} • {reminder.time}
               </Text>
+              {reminder.doseIndicator || reminder.frequency ? (
+                <Text style={styles.reminderSchedule}>
+                  {[
+                    reminder.doseIndicator,
+                    reminder.frequency,
+                    reminder.duration ? `for ${reminder.duration}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                </Text>
+              ) : null}
             </View>
 
             <Switch
@@ -746,6 +769,13 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 3,
   },
+  nextReminderSchedule: {
+    fontSize: 12.8,
+    lineHeight: 18,
+    color: "#7c3aed",
+    fontWeight: "900",
+    marginTop: 4,
+  },
   nextReminderInstruction: {
     fontSize: 13,
     color: "#475569",
@@ -875,6 +905,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#64748b",
+  },
+  reminderSchedule: {
+    fontSize: 12.8,
+    lineHeight: 18,
+    color: "#7c3aed",
+    fontWeight: "900",
+    marginTop: 4,
   },
   instructionBox: {
     backgroundColor: "#f8fafc",

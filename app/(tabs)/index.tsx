@@ -1,32 +1,30 @@
 import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
 import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
+import {
+  applyDoseStatusesForDate,
+  getLocalDateKey,
+} from "@/src/features/adherence/utils/daily-adherence";
+import {
+  AdherenceHistoryItem,
+  MedicationDose,
+  getAdherenceHistoryFromSupabase,
+} from "@/src/services/medcoSupabaseService";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
-type DoseStatus = "Pending" | "Taken" | "Missed" | "Snoozed";
-
-type ScheduleDose = {
-  id: string;
-  medicationId: string;
-  medicationName: string;
-  dosage: string;
-  time: string;
-  instruction: string;
-  status: DoseStatus;
-};
-
 type StoredMedicationSchedule = {
   id: string;
   createdAt: string;
-  doses: ScheduleDose[];
+  doses: MedicationDose[];
 };
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
+const MEDCO_ADHERENCE_HISTORY_KEY = "MEDCO_ADHERENCE_HISTORY";
 
-const defaultDoses: ScheduleDose[] = [
+const defaultDoses: MedicationDose[] = [
   {
     id: "default-dose-1",
     medicationId: "default-med-1",
@@ -58,7 +56,8 @@ const defaultDoses: ScheduleDose[] = [
 
 export default function HomeScreen() {
   const { user } = useAuthSession();
-  const [doses, setDoses] = useState<ScheduleDose[]>(defaultDoses);
+  const [doses, setDoses] = useState<MedicationDose[]>(defaultDoses);
+  const [history, setHistory] = useState<AdherenceHistoryItem[]>([]);
   const [hasSavedSchedule, setHasSavedSchedule] = useState(false);
   const accountDisplay = useMemo(() => getAccountDisplay(user), [user]);
 
@@ -70,6 +69,7 @@ export default function HomeScreen() {
 
       if (!savedScheduleRaw) {
         setDoses(defaultDoses);
+        setHistory([]);
         setHasSavedSchedule(false);
         return;
       }
@@ -84,12 +84,34 @@ export default function HomeScreen() {
       ) {
         setDoses(savedSchedule.doses);
         setHasSavedSchedule(true);
+
+        try {
+          const latestHistory = await getAdherenceHistoryFromSupabase(
+            savedSchedule.id,
+          );
+          setHistory(latestHistory);
+          await AsyncStorage.setItem(
+            MEDCO_ADHERENCE_HISTORY_KEY,
+            JSON.stringify(latestHistory),
+          );
+        } catch {
+          const savedHistoryRaw = await AsyncStorage.getItem(
+            MEDCO_ADHERENCE_HISTORY_KEY,
+          );
+          const savedHistory = savedHistoryRaw
+            ? (JSON.parse(savedHistoryRaw) as AdherenceHistoryItem[])
+            : [];
+
+          setHistory(Array.isArray(savedHistory) ? savedHistory : []);
+        }
       } else {
         setDoses(defaultDoses);
+        setHistory([]);
         setHasSavedSchedule(false);
       }
     } catch {
       setDoses(defaultDoses);
+      setHistory([]);
       setHasSavedSchedule(false);
     }
   };
@@ -100,30 +122,44 @@ export default function HomeScreen() {
     }, []),
   );
 
+  const todayDateKey = getLocalDateKey(new Date());
+
+  const todayDoses = useMemo(() => {
+    if (!hasSavedSchedule) {
+      return doses;
+    }
+
+    return applyDoseStatusesForDate(doses, history, todayDateKey);
+  }, [doses, hasSavedSchedule, history, todayDateKey]);
+
   const stats = useMemo(() => {
-    const taken = doses.filter((dose) => dose.status === "Taken").length;
-    const missed = doses.filter((dose) => dose.status === "Missed").length;
-    const pending = doses.filter((dose) => dose.status === "Pending").length;
-    const snoozed = doses.filter((dose) => dose.status === "Snoozed").length;
+    const taken = todayDoses.filter((dose) => dose.status === "Taken").length;
+    const missed = todayDoses.filter((dose) => dose.status === "Missed").length;
+    const pending = todayDoses.filter(
+      (dose) => dose.status === "Pending",
+    ).length;
+    const snoozed = todayDoses.filter(
+      (dose) => dose.status === "Snoozed",
+    ).length;
 
     return {
       taken,
       missed,
       pending,
       snoozed,
-      reminders: doses.length,
+      reminders: todayDoses.length,
     };
-  }, [doses]);
+  }, [todayDoses]);
 
   const nextDose = useMemo(() => {
-    const pendingDose = doses.find((dose) => dose.status === "Pending");
+    const pendingDose = todayDoses.find((dose) => dose.status === "Pending");
 
     if (pendingDose) {
       return pendingDose;
     }
 
-    return doses[0] ?? null;
-  }, [doses]);
+    return todayDoses[0] ?? null;
+  }, [todayDoses]);
 
   const goToScanner = () => {
     router.push("/prescriptions/new");
@@ -158,7 +194,7 @@ export default function HomeScreen() {
     });
   };
 
-  const getStatusStyle = (status: DoseStatus) => {
+  const getStatusStyle = (status: MedicationDose["status"]) => {
     if (status === "Taken") {
       return {
         badge: styles.takenBadge,
@@ -377,7 +413,7 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.scheduleCard}>
-        {doses.slice(0, 3).map((dose) => {
+        {todayDoses.slice(0, 3).map((dose) => {
           const statusStyle = getStatusStyle(dose.status);
 
           return (

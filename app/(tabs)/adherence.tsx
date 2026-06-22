@@ -20,8 +20,12 @@ import {
   getAdherenceHistoryFromSupabase,
   getLatestMedicationScheduleFromSupabase,
   saveAdherenceHistoryToSupabase,
-  updateMedicationScheduleDosesInSupabase,
 } from "@/src/services/medcoSupabaseService";
+import {
+  applyDoseStatusesForDate,
+  getDoseIndicator,
+  getLocalDateKey,
+} from "@/src/features/adherence/utils/daily-adherence";
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
 const MEDCO_ADHERENCE_HISTORY_KEY = "MEDCO_ADHERENCE_HISTORY";
@@ -37,22 +41,6 @@ const emptySchedule: MedicationSchedule = {
   createdAt: new Date().toISOString(),
   doses: [],
 };
-
-function getDoseIndicator(dose: MedicationDose) {
-  if (dose.isPrn) {
-    return "As needed";
-  }
-
-  if (
-    typeof dose.doseIndex === "number" &&
-    typeof dose.totalDailyDoses === "number" &&
-    dose.totalDailyDoses > 1
-  ) {
-    return `Dose ${dose.doseIndex} of ${dose.totalDailyDoses}`;
-  }
-
-  return null;
-}
 
 export default function AdherenceScreen() {
   const [schedule, setSchedule] = useState<MedicationSchedule>(emptySchedule);
@@ -162,17 +150,23 @@ export default function AdherenceScreen() {
     }, []),
   );
 
+  const todayDateKey = getLocalDateKey(new Date());
+
+  const todayDoses = useMemo(() => {
+    return applyDoseStatusesForDate(schedule.doses, history, todayDateKey);
+  }, [history, schedule.doses, todayDateKey]);
+
   const stats = useMemo(() => {
-    const taken = schedule.doses.filter(
+    const taken = todayDoses.filter(
       (dose) => dose.status === "Taken",
     ).length;
-    const missed = schedule.doses.filter(
+    const missed = todayDoses.filter(
       (dose) => dose.status === "Missed",
     ).length;
-    const snoozed = schedule.doses.filter(
+    const snoozed = todayDoses.filter(
       (dose) => dose.status === "Snoozed",
     ).length;
-    const pending = schedule.doses.filter(
+    const pending = todayDoses.filter(
       (dose) => dose.status === "Pending",
     ).length;
 
@@ -185,11 +179,11 @@ export default function AdherenceScreen() {
       missed,
       snoozed,
       pending,
-      total: schedule.doses.length,
+      total: todayDoses.length,
       completed,
       adherencePercentage,
     };
-  }, [schedule.doses]);
+  }, [todayDoses]);
 
   const weeklyAdherence = useMemo(() => {
     const today = new Date();
@@ -203,18 +197,20 @@ export default function AdherenceScreen() {
         weekday: "short",
       });
 
-      const dateKey = date.toISOString().split("T")[0];
+      const dateKey = getLocalDateKey(date);
 
-      const actionsForDay = history.filter((item) => {
-        return item.createdAt.startsWith(dateKey);
-      });
+      const doseStatusesForDay = applyDoseStatusesForDate(
+        schedule.doses,
+        history,
+        dateKey,
+      );
 
-      const takenForDay = actionsForDay.filter(
-        (item) => item.action === "Taken",
+      const takenForDay = doseStatusesForDay.filter(
+        (dose) => dose.status === "Taken",
       ).length;
 
-      const missedForDay = actionsForDay.filter(
-        (item) => item.action === "Missed",
+      const missedForDay = doseStatusesForDay.filter(
+        (dose) => dose.status === "Missed",
       ).length;
 
       const completedForDay = takenForDay + missedForDay;
@@ -231,7 +227,7 @@ export default function AdherenceScreen() {
     }
 
     return days;
-  }, [history]);
+  }, [history, schedule.doses]);
 
   const updateDoseStatus = async (doseId: string, nextStatus: DoseStatus) => {
     if (!schedule.id) {
@@ -245,23 +241,7 @@ export default function AdherenceScreen() {
     try {
       setIsUpdatingDoseId(doseId);
 
-      const updatedDoses = schedule.doses.map((dose) => {
-        if (dose.id === doseId) {
-          return {
-            ...dose,
-            status: nextStatus,
-          };
-        }
-
-        return dose;
-      });
-
-      const updatedSchedule = await updateMedicationScheduleDosesInSupabase(
-        schedule.id,
-        updatedDoses,
-      );
-
-      const selectedDose = updatedDoses.find((dose) => dose.id === doseId);
+      const selectedDose = schedule.doses.find((dose) => dose.id === doseId);
 
       if (!selectedDose) {
         throw new Error("Selected dose was not found.");
@@ -280,10 +260,8 @@ export default function AdherenceScreen() {
 
       const updatedHistory = [historyItem, ...history];
 
-      setSchedule(updatedSchedule);
       setHistory(updatedHistory);
 
-      await cacheScheduleLocally(updatedSchedule);
       await cacheHistoryLocally(updatedHistory);
     } catch (error) {
       Alert.alert(
@@ -343,21 +321,28 @@ export default function AdherenceScreen() {
             try {
               setIsUpdatingDoseId("reset-all");
 
-              const resetDoses = schedule.doses.map((dose) => {
-                return {
-                  ...dose,
-                  status: "Pending" as DoseStatus,
-                };
-              });
+              const resetHistoryItems: AdherenceHistoryItem[] =
+                schedule.doses.map((dose) => {
+                  return {
+                    id: `history-${dose.id}-reset-${Date.now()}`,
+                    doseId: dose.id,
+                    medicationName: dose.medicationName,
+                    time: dose.time,
+                    action: "Pending" as DoseStatus,
+                    createdAt: new Date().toISOString(),
+                  };
+                });
 
-              const updatedSchedule =
-                await updateMedicationScheduleDosesInSupabase(
-                  schedule.id,
-                  resetDoses,
-                );
+              await Promise.all(
+                resetHistoryItems.map((historyItem) =>
+                  saveAdherenceHistoryToSupabase(schedule.id, historyItem),
+                ),
+              );
 
-              setSchedule(updatedSchedule);
-              await cacheScheduleLocally(updatedSchedule);
+              const updatedHistory = [...resetHistoryItems, ...history];
+
+              setHistory(updatedHistory);
+              await cacheHistoryLocally(updatedHistory);
             } catch (error) {
               Alert.alert(
                 "Reset Failed",
@@ -596,7 +581,7 @@ export default function AdherenceScreen() {
             </Pressable>
           </View>
 
-          {schedule.doses.map((dose) => {
+          {todayDoses.map((dose) => {
             const statusStyle = getStatusStyle(dose.status);
             const isUpdating =
               isUpdatingDoseId === dose.id || isUpdatingDoseId === "reset-all";

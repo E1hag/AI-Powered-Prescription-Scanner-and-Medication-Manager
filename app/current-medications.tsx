@@ -30,9 +30,12 @@ type MedicationGroup = {
   medicationId: string;
   medicationName: string;
   dosage: string;
+  frequency: string | null;
+  duration: string | null;
+  isPrn: boolean;
+  totalDailyDoses: number;
   doseTimes: string[];
   instructions: string[];
-  statuses: string[];
 };
 
 const emptySchedule: MedicationSchedule = {
@@ -40,6 +43,26 @@ const emptySchedule: MedicationSchedule = {
   createdAt: new Date().toISOString(),
   doses: [],
 };
+
+function addUniqueValue(values: string[], value: string) {
+  const trimmedValue = value.trim();
+
+  if (trimmedValue && !values.includes(trimmedValue)) {
+    values.push(trimmedValue);
+  }
+}
+
+function getDoseCountLabel(group: MedicationGroup) {
+  if (group.isPrn) {
+    return "As needed";
+  }
+
+  if (group.totalDailyDoses === 1) {
+    return "1 dose daily";
+  }
+
+  return `${group.totalDailyDoses} doses daily`;
+}
 
 export default function CurrentMedicationsScreen() {
   const [schedule, setSchedule] = useState<MedicationSchedule>(emptySchedule);
@@ -136,19 +159,24 @@ export default function CurrentMedicationsScreen() {
 
     schedule.doses.forEach((dose) => {
       const existingGroup = groupedMap.get(dose.medicationId);
+      const doseDailyCount =
+        typeof dose.totalDailyDoses === "number" && dose.totalDailyDoses > 0
+          ? dose.totalDailyDoses
+          : 1;
 
       if (existingGroup) {
-        if (!existingGroup.doseTimes.includes(dose.time)) {
-          existingGroup.doseTimes.push(dose.time);
-        }
+        addUniqueValue(existingGroup.doseTimes, dose.time);
+        addUniqueValue(existingGroup.instructions, dose.instruction);
 
-        if (!existingGroup.instructions.includes(dose.instruction)) {
-          existingGroup.instructions.push(dose.instruction);
-        }
-
-        if (!existingGroup.statuses.includes(dose.status)) {
-          existingGroup.statuses.push(dose.status);
-        }
+        existingGroup.totalDailyDoses = Math.max(
+          existingGroup.totalDailyDoses,
+          doseDailyCount,
+        );
+        existingGroup.isPrn = existingGroup.isPrn || Boolean(dose.isPrn);
+        existingGroup.frequency =
+          existingGroup.frequency || dose.frequency?.trim() || null;
+        existingGroup.duration =
+          existingGroup.duration || dose.duration?.trim() || null;
 
         return;
       }
@@ -157,9 +185,12 @@ export default function CurrentMedicationsScreen() {
         medicationId: dose.medicationId,
         medicationName: dose.medicationName,
         dosage: dose.dosage,
-        doseTimes: [dose.time],
-        instructions: [dose.instruction],
-        statuses: [dose.status],
+        frequency: dose.frequency?.trim() || null,
+        duration: dose.duration?.trim() || null,
+        isPrn: Boolean(dose.isPrn),
+        totalDailyDoses: doseDailyCount,
+        doseTimes: dose.time.trim() ? [dose.time.trim()] : [],
+        instructions: dose.instruction.trim() ? [dose.instruction.trim()] : [],
       });
     });
 
@@ -169,20 +200,16 @@ export default function CurrentMedicationsScreen() {
   const summary = useMemo(() => {
     const totalMedications = medicationGroups.length;
     const totalDoses = schedule.doses.length;
-    const pendingDoses = schedule.doses.filter(
-      (dose) => dose.status === "Pending",
-    ).length;
-    const completedDoses = schedule.doses.filter(
-      (dose) => dose.status === "Taken" || dose.status === "Missed",
-    ).length;
+    const multiDoseMedications = medicationGroups.filter((group) => {
+      return !group.isPrn && group.totalDailyDoses > 1;
+    }).length;
 
     return {
       totalMedications,
       totalDoses,
-      pendingDoses,
-      completedDoses,
+      multiDoseMedications,
     };
-  }, [medicationGroups.length, schedule.doses]);
+  }, [medicationGroups, schedule.doses.length]);
 
   const formatCreatedDate = () => {
     if (!schedule.id) {
@@ -222,11 +249,21 @@ export default function CurrentMedicationsScreen() {
   const showMedicationDetails = (medication: MedicationGroup) => {
     Alert.alert(
       medication.medicationName,
-      `Dosage: ${medication.dosage}\n\nDose times: ${medication.doseTimes.join(
-        ", ",
-      )}\n\nInstructions: ${medication.instructions.join(
-        " • ",
-      )}\n\nStatuses: ${medication.statuses.join(", ")}`,
+      `Dosage: ${medication.dosage}\n\nSchedule: ${getDoseCountLabel(
+        medication,
+      )}${
+        medication.frequency ? `\nFrequency: ${medication.frequency}` : ""
+      }${
+        medication.duration ? `\nDuration: ${medication.duration}` : ""
+      }\n\nDose times: ${
+        medication.doseTimes.length > 0
+          ? medication.doseTimes.join(", ")
+          : "No dose times saved"
+      }\n\nInstructions: ${
+        medication.instructions.length > 0
+          ? medication.instructions.join(" • ")
+          : "Follow prescription instructions"
+      }`,
     );
   };
 
@@ -329,9 +366,11 @@ export default function CurrentMedicationsScreen() {
             </View>
 
             <View style={styles.summaryCard}>
-              <Ionicons name="time" size={24} color="#f59e0b" />
-              <Text style={styles.summaryNumber}>{summary.pendingDoses}</Text>
-              <Text style={styles.summaryLabel}>Pending</Text>
+              <Ionicons name="repeat" size={24} color="#f59e0b" />
+              <Text style={styles.summaryNumber}>
+                {summary.multiDoseMedications}
+              </Text>
+              <Text style={styles.summaryLabel}>Multi-dose</Text>
             </View>
           </View>
 
@@ -362,6 +401,9 @@ export default function CurrentMedicationsScreen() {
                   <Text style={styles.medicationDosage}>
                     {medication.dosage}
                   </Text>
+                  <Text style={styles.medicationSchedule}>
+                    {getDoseCountLabel(medication)}
+                  </Text>
                 </View>
 
                 <Ionicons name="chevron-forward" size={22} color="#cbd5e1" />
@@ -371,24 +413,52 @@ export default function CurrentMedicationsScreen() {
                 <View style={styles.infoRow}>
                   <Ionicons name="time" size={17} color="#2563eb" />
                   <Text style={styles.infoText}>
-                    {medication.doseTimes.join(", ")}
+                    {medication.doseTimes.length > 0
+                      ? medication.doseTimes.join(", ")
+                      : "No dose times saved"}
                   </Text>
                 </View>
+
+                {medication.frequency ? (
+                  <View style={styles.infoRow}>
+                    <Ionicons name="repeat" size={17} color="#7c3aed" />
+                    <Text style={styles.infoText}>
+                      Frequency: {medication.frequency}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {medication.duration ? (
+                  <View style={styles.infoRow}>
+                    <Ionicons name="calendar" size={17} color="#f59e0b" />
+                    <Text style={styles.infoText}>
+                      Duration: {medication.duration}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.infoRow}>
                   <Ionicons name="document-text" size={17} color="#64748b" />
                   <Text style={styles.infoText}>
-                    {medication.instructions.join(" • ")}
+                    {medication.instructions.length > 0
+                      ? medication.instructions.join(" • ")
+                      : "Follow prescription instructions"}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.statusRow}>
-                {medication.statuses.map((status) => (
-                  <View key={status} style={styles.statusChip}>
-                    <Text style={styles.statusChipText}>{status}</Text>
+              <View style={styles.scheduleChipRow}>
+                <View style={styles.scheduleChip}>
+                  <Text style={styles.scheduleChipText}>
+                    {getDoseCountLabel(medication)}
+                  </Text>
+                </View>
+
+                {medication.isPrn ? (
+                  <View style={styles.scheduleChip}>
+                    <Text style={styles.scheduleChipText}>PRN</Text>
                   </View>
-                ))}
+                ) : null}
               </View>
             </Pressable>
           ))}
@@ -664,6 +734,12 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginTop: 3,
   },
+  medicationSchedule: {
+    fontSize: 12.8,
+    fontWeight: "900",
+    color: "#2563eb",
+    marginTop: 3,
+  },
   medicationInfoBox: {
     backgroundColor: "#f8fafc",
     borderRadius: 16,
@@ -682,19 +758,19 @@ const styles = StyleSheet.create({
     color: "#475569",
     fontWeight: "700",
   },
-  statusRow: {
+  scheduleChipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 7,
     marginTop: 12,
   },
-  statusChip: {
+  scheduleChip: {
     backgroundColor: "#eff6ff",
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 999,
   },
-  statusChipText: {
+  scheduleChipText: {
     color: "#2563eb",
     fontSize: 12,
     fontWeight: "900",
