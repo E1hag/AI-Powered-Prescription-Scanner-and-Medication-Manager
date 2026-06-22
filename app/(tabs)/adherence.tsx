@@ -23,6 +23,7 @@ import {
 } from "@/src/services/medcoSupabaseService";
 import {
   applyDoseStatusesForDate,
+  DoseDisplayStatus,
   getDoseIndicator,
   getLocalDateKey,
 } from "@/src/features/adherence/utils/daily-adherence";
@@ -158,16 +159,20 @@ export default function AdherenceScreen() {
 
   const stats = useMemo(() => {
     const taken = todayDoses.filter(
-      (dose) => dose.status === "Taken",
+      (dose) => dose.displayStatus === "Taken",
     ).length;
     const missed = todayDoses.filter(
-      (dose) => dose.status === "Missed",
+      (dose) => dose.displayStatus === "Missed",
     ).length;
     const snoozed = todayDoses.filter(
-      (dose) => dose.status === "Snoozed",
+      (dose) => dose.displayStatus === "Snoozed",
     ).length;
     const pending = todayDoses.filter(
-      (dose) => dose.status === "Pending",
+      (dose) =>
+        dose.displayStatus === "Pending" ||
+        dose.displayStatus === "Upcoming" ||
+        dose.displayStatus === "Due now" ||
+        dose.displayStatus === "Late",
     ).length;
 
     const completed = taken + missed;
@@ -206,11 +211,11 @@ export default function AdherenceScreen() {
       );
 
       const takenForDay = doseStatusesForDay.filter(
-        (dose) => dose.status === "Taken",
+        (dose) => dose.displayStatus === "Taken",
       ).length;
 
       const missedForDay = doseStatusesForDay.filter(
-        (dose) => dose.status === "Missed",
+        (dose) => dose.displayStatus === "Missed",
       ).length;
 
       const completedForDay = takenForDay + missedForDay;
@@ -282,7 +287,7 @@ export default function AdherenceScreen() {
         : nextStatus === "Missed"
           ? "mark this dose as Missed"
           : nextStatus === "Snoozed"
-            ? "snooze this dose"
+            ? "snooze this dose for 30 minutes"
             : "set this dose as Pending";
 
     Alert.alert("Confirm Dose Action", `Do you want to ${actionText}?`, [
@@ -367,7 +372,7 @@ export default function AdherenceScreen() {
     router.push("/current-medications");
   };
 
-  const getStatusStyle = (status: DoseStatus) => {
+  const getStatusStyle = (status: DoseDisplayStatus) => {
     if (status === "Taken") {
       return {
         badge: styles.takenBadge,
@@ -392,6 +397,33 @@ export default function AdherenceScreen() {
         text: styles.snoozedBadgeText,
         icon: "time" as const,
         iconColor: "#f59e0b",
+      };
+    }
+
+    if (status === "Late") {
+      return {
+        badge: styles.lateBadge,
+        text: styles.lateBadgeText,
+        icon: "alert-circle" as const,
+        iconColor: "#ea580c",
+      };
+    }
+
+    if (status === "Due now") {
+      return {
+        badge: styles.dueBadge,
+        text: styles.dueBadgeText,
+        icon: "alarm" as const,
+        iconColor: "#2563eb",
+      };
+    }
+
+    if (status === "Upcoming") {
+      return {
+        badge: styles.upcomingBadge,
+        text: styles.upcomingBadgeText,
+        icon: "time-outline" as const,
+        iconColor: "#64748b",
       };
     }
 
@@ -582,7 +614,7 @@ export default function AdherenceScreen() {
           </View>
 
           {todayDoses.map((dose) => {
-            const statusStyle = getStatusStyle(dose.status);
+            const statusStyle = getStatusStyle(dose.displayStatus);
             const isUpdating =
               isUpdatingDoseId === dose.id || isUpdatingDoseId === "reset-all";
             const doseIndicator = getDoseIndicator(dose);
@@ -608,7 +640,7 @@ export default function AdherenceScreen() {
 
                   <View style={[styles.statusBadge, statusStyle.badge]}>
                     <Text style={[styles.statusBadgeText, statusStyle.text]}>
-                      {dose.status}
+                      {dose.displayLabel}
                     </Text>
                     <Ionicons
                       name={statusStyle.icon}
@@ -1143,6 +1175,24 @@ const styles = StyleSheet.create({
   },
   snoozedBadgeText: {
     color: "#b45309",
+  },
+  lateBadge: {
+    backgroundColor: "#ffedd5",
+  },
+  lateBadgeText: {
+    color: "#ea580c",
+  },
+  dueBadge: {
+    backgroundColor: "#dbeafe",
+  },
+  dueBadgeText: {
+    color: "#2563eb",
+  },
+  upcomingBadge: {
+    backgroundColor: "#f1f5f9",
+  },
+  upcomingBadgeText: {
+    color: "#475569",
   },
   pendingBadge: {
     backgroundColor: "#e2e8f0",

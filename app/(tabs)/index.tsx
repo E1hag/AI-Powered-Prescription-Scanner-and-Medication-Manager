@@ -2,6 +2,8 @@ import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
 import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
 import {
   applyDoseStatusesForDate,
+  DailyMedicationDose,
+  DoseDisplayStatus,
   getLocalDateKey,
 } from "@/src/features/adherence/utils/daily-adherence";
 import {
@@ -23,6 +25,55 @@ type StoredMedicationSchedule = {
 
 const MEDCO_SCHEDULE_STORAGE_KEY = "MEDCO_MEDICATION_SCHEDULE";
 const MEDCO_ADHERENCE_HISTORY_KEY = "MEDCO_ADHERENCE_HISTORY";
+
+const DOSE_RELEVANCE_PRIORITY: Record<DoseDisplayStatus, number> = {
+  Late: 0,
+  "Due now": 1,
+  Snoozed: 2,
+  Upcoming: 3,
+  Pending: 4,
+  Taken: 5,
+  Missed: 6,
+};
+
+function getDoseTimeSortValue(timeText: string) {
+  const timeMatch = timeText
+    .trim()
+    .match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+
+  if (!timeMatch) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const [, hourText, minuteText = "00", meridiemText] = timeMatch;
+  let hour = Number(hourText);
+  const minute = Number(minuteText);
+  const meridiem = meridiemText.toUpperCase();
+
+  if (meridiem === "PM" && hour !== 12) {
+    hour += 12;
+  }
+
+  if (meridiem === "AM" && hour === 12) {
+    hour = 0;
+  }
+
+  return hour * 60 + minute;
+}
+
+function sortDosesByRelevance(doses: DailyMedicationDose[]) {
+  return [...doses].sort((first, second) => {
+    const priorityDifference =
+      DOSE_RELEVANCE_PRIORITY[first.displayStatus] -
+      DOSE_RELEVANCE_PRIORITY[second.displayStatus];
+
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
+
+    return getDoseTimeSortValue(first.time) - getDoseTimeSortValue(second.time);
+  });
+}
 
 const defaultDoses: MedicationDose[] = [
   {
@@ -133,13 +184,21 @@ export default function HomeScreen() {
   }, [doses, hasSavedSchedule, history, todayDateKey]);
 
   const stats = useMemo(() => {
-    const taken = todayDoses.filter((dose) => dose.status === "Taken").length;
-    const missed = todayDoses.filter((dose) => dose.status === "Missed").length;
+    const taken = todayDoses.filter(
+      (dose) => dose.displayStatus === "Taken",
+    ).length;
+    const missed = todayDoses.filter(
+      (dose) => dose.displayStatus === "Missed",
+    ).length;
     const pending = todayDoses.filter(
-      (dose) => dose.status === "Pending",
+      (dose) =>
+        dose.displayStatus === "Pending" ||
+        dose.displayStatus === "Upcoming" ||
+        dose.displayStatus === "Due now" ||
+        dose.displayStatus === "Late",
     ).length;
     const snoozed = todayDoses.filter(
-      (dose) => dose.status === "Snoozed",
+      (dose) => dose.displayStatus === "Snoozed",
     ).length;
 
     return {
@@ -152,13 +211,25 @@ export default function HomeScreen() {
   }, [todayDoses]);
 
   const nextDose = useMemo(() => {
-    const pendingDose = todayDoses.find((dose) => dose.status === "Pending");
+    const candidateDoses = todayDoses.filter((dose) => {
+      return (
+        dose.displayStatus === "Late" ||
+        dose.displayStatus === "Due now" ||
+        dose.displayStatus === "Snoozed" ||
+        dose.displayStatus === "Upcoming" ||
+        dose.displayStatus === "Pending"
+      );
+    });
 
-    if (pendingDose) {
-      return pendingDose;
+    if (candidateDoses.length > 0) {
+      return sortDosesByRelevance(candidateDoses)[0];
     }
 
-    return todayDoses[0] ?? null;
+    return null;
+  }, [todayDoses]);
+
+  const schedulePreviewDoses = useMemo(() => {
+    return sortDosesByRelevance(todayDoses).slice(0, 3);
   }, [todayDoses]);
 
   const goToScanner = () => {
@@ -194,7 +265,7 @@ export default function HomeScreen() {
     });
   };
 
-  const getStatusStyle = (status: MedicationDose["status"]) => {
+  const getStatusStyle = (status: DoseDisplayStatus) => {
     if (status === "Taken") {
       return {
         badge: styles.takenBadge,
@@ -219,6 +290,33 @@ export default function HomeScreen() {
         text: styles.snoozedBadgeText,
         icon: "time" as const,
         iconColor: "#f59e0b",
+      };
+    }
+
+    if (status === "Late") {
+      return {
+        badge: styles.lateBadge,
+        text: styles.lateBadgeText,
+        icon: "alert-circle" as const,
+        iconColor: "#ea580c",
+      };
+    }
+
+    if (status === "Due now") {
+      return {
+        badge: styles.dueBadge,
+        text: styles.dueBadgeText,
+        icon: "alarm" as const,
+        iconColor: "#2563eb",
+      };
+    }
+
+    if (status === "Upcoming") {
+      return {
+        badge: styles.upcomingBadge,
+        text: styles.upcomingBadgeText,
+        icon: "time-outline" as const,
+        iconColor: "#2563eb",
       };
     }
 
@@ -257,7 +355,13 @@ export default function HomeScreen() {
       {nextDose ? (
         <View style={styles.nextDoseCard}>
           <View style={styles.nextDoseLeft}>
-            <Text style={styles.nextDoseLabel}>Next Dose</Text>
+            <Text style={styles.nextDoseLabel}>
+              {nextDose.displayStatus === "Late"
+                ? "Late Dose"
+                : nextDose.displayStatus === "Due now"
+                  ? "Due Now"
+                  : "Next Dose"}
+            </Text>
             <Text style={styles.nextDoseName}>{nextDose.medicationName}</Text>
 
             <View style={styles.nextDoseMetaRow}>
@@ -276,23 +380,39 @@ export default function HomeScreen() {
 
           <View style={styles.nextDoseCircle}>
             <Text style={styles.nextDoseCircleText}>
-              {nextDose.status === "Pending" ? "Next" : "Done"}
+              {nextDose.displayStatus === "Upcoming"
+                ? "Next"
+                : nextDose.displayStatus}
             </Text>
             <Ionicons
               name={
-                nextDose.status === "Pending"
-                  ? "alarm-outline"
-                  : "checkmark-circle"
+                nextDose.displayStatus === "Late"
+                  ? "alert-circle"
+                  : nextDose.displayStatus === "Snoozed"
+                    ? "time"
+                    : nextDose.displayStatus === "Due now"
+                      ? "alarm"
+                      : "alarm-outline"
               }
               size={38}
-              color={nextDose.status === "Pending" ? "#2563eb" : "#16a34a"}
+              color={
+                nextDose.displayStatus === "Late"
+                  ? "#ea580c"
+                  : nextDose.displayStatus === "Snoozed"
+                    ? "#f59e0b"
+                    : "#2563eb"
+              }
             />
           </View>
         </View>
       ) : (
         <View style={styles.allGoodCard}>
           <Ionicons name="checkmark-circle" size={38} color="#16a34a" />
-          <Text style={styles.allGoodText}>All doses completed for today!</Text>
+          <Text style={styles.allGoodText}>
+            {stats.missed > 0
+              ? "No upcoming doses left for today."
+              : "All doses completed for today!"}
+          </Text>
         </View>
       )}
 
@@ -413,8 +533,8 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.scheduleCard}>
-        {todayDoses.slice(0, 3).map((dose) => {
-          const statusStyle = getStatusStyle(dose.status);
+        {schedulePreviewDoses.map((dose) => {
+          const statusStyle = getStatusStyle(dose.displayStatus);
 
           return (
             <View key={dose.id} style={styles.scheduleRow}>
@@ -422,7 +542,9 @@ export default function HomeScreen() {
                 <Text
                   style={[
                     styles.scheduleTime,
-                    dose.status === "Missed" && styles.missedScheduleTime,
+                    dose.displayStatus === "Missed" &&
+                      styles.missedScheduleTime,
+                    dose.displayStatus === "Late" && styles.lateScheduleTime,
                   ]}
                 >
                   {dose.time}
@@ -433,7 +555,9 @@ export default function HomeScreen() {
                 <View
                   style={[
                     styles.timelineDot,
-                    dose.status === "Missed" && styles.timelineDotMissed,
+                    dose.displayStatus === "Missed" &&
+                      styles.timelineDotMissed,
+                    dose.displayStatus === "Late" && styles.timelineDotLate,
                   ]}
                 />
                 <View style={styles.timelineLine} />
@@ -448,7 +572,7 @@ export default function HomeScreen() {
 
               <View style={[styles.statusBadge, statusStyle.badge]}>
                 <Text style={[styles.statusBadgeText, statusStyle.text]}>
-                  {dose.status === "Pending" ? "Upcoming" : dose.status}
+                  {dose.displayLabel}
                 </Text>
                 <Ionicons
                   name={statusStyle.icon}
@@ -772,6 +896,9 @@ const styles = StyleSheet.create({
   missedScheduleTime: {
     color: "#dc2626",
   },
+  lateScheduleTime: {
+    color: "#ea580c",
+  },
   timelineBox: {
     width: 22,
     alignItems: "center",
@@ -785,6 +912,9 @@ const styles = StyleSheet.create({
   },
   timelineDotMissed: {
     backgroundColor: "#dc2626",
+  },
+  timelineDotLate: {
+    backgroundColor: "#ea580c",
   },
   timelineLine: {
     width: 2,
@@ -837,6 +967,18 @@ const styles = StyleSheet.create({
   },
   snoozedBadgeText: {
     color: "#b45309",
+  },
+  lateBadge: {
+    backgroundColor: "#ffedd5",
+  },
+  lateBadgeText: {
+    color: "#ea580c",
+  },
+  dueBadge: {
+    backgroundColor: "#dbeafe",
+  },
+  dueBadgeText: {
+    color: "#2563eb",
   },
   upcomingBadge: {
     backgroundColor: "#dbeafe",

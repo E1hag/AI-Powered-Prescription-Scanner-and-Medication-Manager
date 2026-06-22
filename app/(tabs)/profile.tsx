@@ -320,13 +320,21 @@ export default function ProfileScreen() {
       todayDoses.map((dose) => dose.medicationId),
     );
 
-    const taken = todayDoses.filter((dose) => dose.status === "Taken").length;
-    const missed = todayDoses.filter((dose) => dose.status === "Missed").length;
+    const taken = todayDoses.filter(
+      (dose) => dose.displayStatus === "Taken",
+    ).length;
+    const missed = todayDoses.filter(
+      (dose) => dose.displayStatus === "Missed",
+    ).length;
     const pending = todayDoses.filter(
-      (dose) => dose.status === "Pending",
+      (dose) =>
+        dose.displayStatus === "Pending" ||
+        dose.displayStatus === "Upcoming" ||
+        dose.displayStatus === "Due now" ||
+        dose.displayStatus === "Late",
     ).length;
     const snoozed = todayDoses.filter(
-      (dose) => dose.status === "Snoozed",
+      (dose) => dose.displayStatus === "Snoozed",
     ).length;
 
     const completed = taken + missed;
