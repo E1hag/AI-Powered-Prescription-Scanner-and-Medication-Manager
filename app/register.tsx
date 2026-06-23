@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "@/src/lib/supabase";
+import { savePatientPersonalDetailsToSupabase } from "@/src/services/medcoSupabaseService";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -15,10 +16,35 @@ import {
   View,
 } from "react-native";
 
+function splitTextList(value: string) {
+  return value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isValidDateOfBirth(value: string) {
+  if (!value.trim()) {
+    return true;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return false;
+  }
+
+  const date = new Date(`${value.trim()}T00:00:00`);
+
+  return !Number.isNaN(date.getTime());
+}
+
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
+  const [allergies, setAllergies] = useState("");
+  const [conditions, setConditions] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -44,14 +70,20 @@ export default function RegisterScreen() {
       nextErrors.phone = "Phone number must be 8 to 15 digits";
     }
 
+    if (!isValidDateOfBirth(dateOfBirth)) {
+      nextErrors.dateOfBirth = "Use YYYY-MM-DD format, for example 2001-04-25";
+    }
+
     if (!password) {
       nextErrors.password = "Password is required";
     } else if (password.length < 10) {
       nextErrors.password = "Password must be at least 10 characters";
     } else if (!/[A-Z]/.test(password)) {
-      nextErrors.password = "Password must include at least one uppercase letter";
+      nextErrors.password =
+        "Password must include at least one uppercase letter";
     } else if (!/[a-z]/.test(password)) {
-      nextErrors.password = "Password must include at least one lowercase letter";
+      nextErrors.password =
+        "Password must include at least one lowercase letter";
     } else if (!/[0-9]/.test(password)) {
       nextErrors.password = "Password must include at least one number";
     }
@@ -84,6 +116,10 @@ export default function RegisterScreen() {
       const trimmedEmail = email.trim().toLowerCase();
       const trimmedFullName = fullName.trim();
       const trimmedPhone = phone.trim();
+      const trimmedDateOfBirth = dateOfBirth.trim();
+      const trimmedGender = gender.trim();
+      const trimmedAllergies = allergies.trim();
+      const trimmedConditions = conditions.trim();
 
       const { data, error } = await supabase.auth.signUp({
         email: trimmedEmail,
@@ -92,6 +128,10 @@ export default function RegisterScreen() {
           data: {
             full_name: trimmedFullName,
             phone: trimmedPhone,
+            date_of_birth: trimmedDateOfBirth || null,
+            gender: trimmedGender || null,
+            allergies: splitTextList(trimmedAllergies),
+            conditions: splitTextList(trimmedConditions),
           },
         },
       });
@@ -102,13 +142,28 @@ export default function RegisterScreen() {
       }
 
       if (data.session) {
+        try {
+          await savePatientPersonalDetailsToSupabase({
+            fullName: trimmedFullName,
+            email: trimmedEmail,
+            phone: trimmedPhone,
+            dateOfBirth: trimmedDateOfBirth,
+            gender: trimmedGender,
+            allergies: trimmedAllergies,
+            conditions: trimmedConditions,
+          });
+        } catch {
+          // Account creation should not fail if profile sync is blocked by RLS.
+          // The patient can still update these fields from Personal Details.
+        }
+
         router.replace("/(tabs)");
         return;
       }
 
       Alert.alert(
         "Check Your Email",
-        "We sent you a confirmation link. Please verify your email, then sign in.",
+        "We sent you a confirmation link. Please verify your email, then sign in. Your health profile details can also be reviewed later from Personal Details.",
       );
       router.replace("/login");
     } catch (error) {
@@ -182,7 +237,9 @@ export default function RegisterScreen() {
               style={styles.input}
             />
           </View>
-          {errors.email ? <Text style={styles.error}>{errors.email}</Text> : null}
+          {errors.email ? (
+            <Text style={styles.error}>{errors.email}</Text>
+          ) : null}
 
           <Text style={styles.label}>Phone Number</Text>
           <View style={styles.inputBox}>
@@ -196,7 +253,69 @@ export default function RegisterScreen() {
               style={styles.input}
             />
           </View>
-          {errors.phone ? <Text style={styles.error}>{errors.phone}</Text> : null}
+          {errors.phone ? (
+            <Text style={styles.error}>{errors.phone}</Text>
+          ) : null}
+
+          <Text style={styles.label}>Date of Birth</Text>
+          <View style={styles.inputBox}>
+            <Ionicons name="calendar-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={dateOfBirth}
+              onChangeText={setDateOfBirth}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#94a3b8"
+              autoCapitalize="none"
+              style={styles.input}
+            />
+          </View>
+          {errors.dateOfBirth ? (
+            <Text style={styles.error}>{errors.dateOfBirth}</Text>
+          ) : null}
+
+          <Text style={styles.label}>Gender</Text>
+          <View style={styles.inputBox}>
+            <Ionicons name="male-female-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={gender}
+              onChangeText={setGender}
+              placeholder="Enter gender"
+              placeholderTextColor="#94a3b8"
+              style={styles.input}
+            />
+          </View>
+
+          <Text style={styles.label}>Allergies</Text>
+          <View style={styles.textAreaBox}>
+            <Ionicons name="warning-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={allergies}
+              onChangeText={setAllergies}
+              placeholder="Example: Penicillin, peanuts"
+              placeholderTextColor="#94a3b8"
+              multiline
+              style={styles.textAreaInput}
+            />
+          </View>
+          <Text style={styles.fieldHint}>
+            Separate multiple allergies with commas.
+          </Text>
+
+          <Text style={styles.label}>Medical Conditions</Text>
+          <View style={styles.textAreaBox}>
+            <Ionicons name="heart-outline" size={22} color="#94a3b8" />
+            <TextInput
+              value={conditions}
+              onChangeText={setConditions}
+              placeholder="Example: Diabetes, asthma"
+              placeholderTextColor="#94a3b8"
+              multiline
+              style={styles.textAreaInput}
+            />
+          </View>
+          <Text style={styles.fieldHint}>
+            Separate multiple conditions with commas.
+          </Text>
 
           <Text style={styles.label}>Password</Text>
           <View style={styles.inputBox}>
@@ -352,6 +471,32 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#0f172a",
     marginLeft: 10,
+  },
+  textAreaBox: {
+    minHeight: 88,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#dbe3ef",
+    backgroundColor: "#f8fafc",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    marginBottom: 6,
+  },
+  textAreaInput: {
+    flex: 1,
+    minHeight: 70,
+    fontSize: 16,
+    color: "#0f172a",
+    marginLeft: 10,
+    textAlignVertical: "top",
+  },
+  fieldHint: {
+    fontSize: 12.5,
+    color: "#64748b",
+    lineHeight: 17,
+    marginBottom: 12,
   },
   passwordHint: {
     fontSize: 13,
