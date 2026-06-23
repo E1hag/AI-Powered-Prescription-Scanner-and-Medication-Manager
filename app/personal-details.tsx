@@ -1,6 +1,10 @@
 import { useAuthSession } from "@/src/features/auth/hooks/use-auth-session";
 import { getAccountDisplay } from "@/src/features/auth/utils/account-display";
 import { supabase } from "@/src/lib/supabase";
+import {
+  getPatientPersonalDetailsFromSupabase,
+  savePatientPersonalDetailsToSupabase,
+} from "@/src/services/medcoSupabaseService";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
@@ -32,23 +36,47 @@ const COLORS = {
 const PERSONAL_DETAILS_STORAGE_KEY = "MEDCO_PERSONAL_DETAILS";
 
 type LocalPersonalDetails = {
-  age: string;
-  gender: string;
   emergencyContactName: string;
   emergencyContactPhone: string;
 };
 
 const defaultLocalDetails: LocalPersonalDetails = {
-  age: "",
-  gender: "",
   emergencyContactName: "",
   emergencyContactPhone: "",
 };
 
-function getMetadataValue(user: ReturnType<typeof useAuthSession>["user"], key: string) {
+function getMetadataValue(
+  user: ReturnType<typeof useAuthSession>["user"],
+  key: string,
+) {
   const value = user?.user_metadata?.[key];
 
-  return typeof value === "string" ? value.trim() : "";
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
+function isValidDateOfBirth(value: string) {
+  if (!value.trim()) {
+    return true;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    return false;
+  }
+
+  const date = new Date(`${value.trim()}T00:00:00`);
+
+  return !Number.isNaN(date.getTime());
 }
 
 export default function PersonalDetailsScreen() {
@@ -57,8 +85,10 @@ export default function PersonalDetailsScreen() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [age, setAge] = useState(defaultLocalDetails.age);
-  const [gender, setGender] = useState(defaultLocalDetails.gender);
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState("");
+  const [allergies, setAllergies] = useState("");
+  const [conditions, setConditions] = useState("");
   const [emergencyContactName, setEmergencyContactName] = useState(
     defaultLocalDetails.emergencyContactName,
   );
@@ -66,6 +96,7 @@ export default function PersonalDetailsScreen() {
     defaultLocalDetails.emergencyContactPhone,
   );
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingRemoteProfile, setIsLoadingRemoteProfile] = useState(false);
 
   useEffect(() => {
     setFullName(
@@ -74,6 +105,10 @@ export default function PersonalDetailsScreen() {
     );
     setEmail(user?.email ?? "");
     setPhone(getMetadataValue(user, "phone"));
+    setDateOfBirth(getMetadataValue(user, "date_of_birth"));
+    setGender(getMetadataValue(user, "gender"));
+    setAllergies(getMetadataValue(user, "allergies"));
+    setConditions(getMetadataValue(user, "conditions"));
   }, [user]);
 
   useEffect(() => {
@@ -93,14 +128,10 @@ export default function PersonalDetailsScreen() {
           savedDetailsRaw,
         ) as Partial<LocalPersonalDetails>;
 
-        setAge(savedDetails.age ?? "");
-        setGender(savedDetails.gender ?? "");
         setEmergencyContactName(savedDetails.emergencyContactName ?? "");
         setEmergencyContactPhone(savedDetails.emergencyContactPhone ?? "");
       } catch {
         if (isMounted) {
-          setAge(defaultLocalDetails.age);
-          setGender(defaultLocalDetails.gender);
           setEmergencyContactName(defaultLocalDetails.emergencyContactName);
           setEmergencyContactPhone(defaultLocalDetails.emergencyContactPhone);
         }
@@ -114,15 +145,70 @@ export default function PersonalDetailsScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadRemoteProfile() {
+      if (!user) {
+        return;
+      }
+
+      try {
+        setIsLoadingRemoteProfile(true);
+
+        const details = await getPatientPersonalDetailsFromSupabase();
+
+        if (!isMounted || !details) {
+          return;
+        }
+
+        setFullName(
+          details.fullName ||
+            getMetadataValue(user, "full_name") ||
+            (user.email ? user.email.split("@")[0] : ""),
+        );
+        setEmail(details.email || user.email || "");
+        setPhone(details.phone || getMetadataValue(user, "phone"));
+        setDateOfBirth(
+          details.dateOfBirth || getMetadataValue(user, "date_of_birth"),
+        );
+        setGender(details.gender || getMetadataValue(user, "gender"));
+        setAllergies(details.allergies || getMetadataValue(user, "allergies"));
+        setConditions(
+          details.conditions || getMetadataValue(user, "conditions"),
+        );
+      } catch {
+        // If remote profile fails to load, keep metadata/local fallback values.
+      } finally {
+        if (isMounted) {
+          setIsLoadingRemoteProfile(false);
+        }
+      }
+    }
+
+    loadRemoteProfile();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
   const handleSaveChanges = async () => {
     if (!user) {
-      Alert.alert("Not Signed In", "Please sign in before editing your details.");
+      Alert.alert(
+        "Not Signed In",
+        "Please sign in before editing your details.",
+      );
       return;
     }
 
     const trimmedFullName = fullName.trim();
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedPhone = phone.trim();
+    const trimmedDateOfBirth = dateOfBirth.trim();
+    const trimmedGender = gender.trim();
+    const trimmedAllergies = allergies.trim();
+    const trimmedConditions = conditions.trim();
 
     if (!trimmedFullName) {
       Alert.alert("Missing Name", "Please enter your full name.");
@@ -134,6 +220,14 @@ export default function PersonalDetailsScreen() {
       return;
     }
 
+    if (!isValidDateOfBirth(trimmedDateOfBirth)) {
+      Alert.alert(
+        "Invalid Date of Birth",
+        "Please use YYYY-MM-DD format, for example 2001-04-25.",
+      );
+      return;
+    }
+
     try {
       setIsSaving(true);
 
@@ -142,11 +236,25 @@ export default function PersonalDetailsScreen() {
         data: {
           full_name: string;
           phone: string;
+          date_of_birth: string | null;
+          gender: string | null;
+          allergies: string[];
+          conditions: string[];
         };
       } = {
         data: {
           full_name: trimmedFullName,
           phone: trimmedPhone,
+          date_of_birth: trimmedDateOfBirth || null,
+          gender: trimmedGender || null,
+          allergies: trimmedAllergies
+            .split(/[,;\n]/)
+            .map((item) => item.trim())
+            .filter(Boolean),
+          conditions: trimmedConditions
+            .split(/[,;\n]/)
+            .map((item) => item.trim())
+            .filter(Boolean),
         },
       };
 
@@ -161,11 +269,19 @@ export default function PersonalDetailsScreen() {
         return;
       }
 
+      await savePatientPersonalDetailsToSupabase({
+        fullName: trimmedFullName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
+        dateOfBirth: trimmedDateOfBirth,
+        gender: trimmedGender,
+        allergies: trimmedAllergies,
+        conditions: trimmedConditions,
+      });
+
       await AsyncStorage.setItem(
         PERSONAL_DETAILS_STORAGE_KEY,
         JSON.stringify({
-          age: age.trim(),
-          gender: gender.trim(),
           emergencyContactName: emergencyContactName.trim(),
           emergencyContactPhone: emergencyContactPhone.trim(),
         } satisfies LocalPersonalDetails),
@@ -182,6 +298,13 @@ export default function PersonalDetailsScreen() {
             onPress: () => router.back(),
           },
         ],
+      );
+    } catch (error) {
+      Alert.alert(
+        "Save Failed",
+        error instanceof Error
+          ? error.message
+          : "Unable to save personal details.",
       );
     } finally {
       setIsSaving(false);
@@ -208,7 +331,8 @@ export default function PersonalDetailsScreen() {
 
         <Text style={styles.title}>Personal Details</Text>
         <Text style={styles.subtitle}>
-          View your basic personal and emergency information.
+          View and update your basic personal, health, and emergency
+          information.
         </Text>
 
         <View style={styles.profileCard}>
@@ -216,8 +340,16 @@ export default function PersonalDetailsScreen() {
             <Ionicons name="person" size={48} color={COLORS.blue} />
           </View>
 
-          <Text style={styles.name}>{fullName.trim() || accountDisplay.fullName}</Text>
-          <Text style={styles.email}>{email.trim() || accountDisplay.email}</Text>
+          <Text style={styles.name}>
+            {fullName.trim() || accountDisplay.fullName}
+          </Text>
+          <Text style={styles.email}>
+            {email.trim() || accountDisplay.email}
+          </Text>
+
+          {isLoadingRemoteProfile ? (
+            <Text style={styles.loadingText}>Loading saved profile...</Text>
+          ) : null}
         </View>
 
         <View style={styles.infoCard}>
@@ -252,15 +384,15 @@ export default function PersonalDetailsScreen() {
 
           <View style={styles.twoColumnRow}>
             <View style={styles.halfBox}>
-              <Text style={styles.label}>Age</Text>
+              <Text style={styles.label}>Date of Birth</Text>
               <View style={styles.smallInputBox}>
                 <Ionicons name="calendar-outline" size={20} color="#9AA8BD" />
                 <TextInput
-                  value={age}
-                  onChangeText={setAge}
-                  placeholder="Age"
+                  value={dateOfBirth}
+                  onChangeText={setDateOfBirth}
+                  placeholder="YYYY-MM-DD"
                   placeholderTextColor="#94a3b8"
-                  keyboardType="number-pad"
+                  autoCapitalize="none"
                   style={styles.smallInputText}
                 />
               </View>
@@ -284,6 +416,31 @@ export default function PersonalDetailsScreen() {
               </View>
             </View>
           </View>
+        </View>
+
+        <View style={styles.infoCard}>
+          <Text style={styles.sectionTitle}>Medical Information</Text>
+
+          <EditableTextAreaField
+            label="Allergies"
+            icon="warning-outline"
+            value={allergies}
+            onChangeText={setAllergies}
+            placeholder="Example: Penicillin, peanuts"
+          />
+
+          <EditableTextAreaField
+            label="Medical Conditions"
+            icon="heart-outline"
+            value={conditions}
+            onChangeText={setConditions}
+            placeholder="Example: Diabetes, asthma"
+          />
+
+          <Text style={styles.infoHint}>
+            Separate multiple allergies or conditions with commas. These details
+            are saved to the patient profile and medical profile records.
+          </Text>
         </View>
 
         <View style={styles.infoCard}>
@@ -361,6 +518,33 @@ function EditableInfoField({
   );
 }
 
+function EditableTextAreaField({
+  label,
+  icon,
+  value,
+  onChangeText,
+  placeholder,
+}: EditableInfoFieldProps) {
+  return (
+    <View style={styles.fieldWrapper}>
+      <Text style={styles.label}>{label}</Text>
+
+      <View style={styles.textAreaBox}>
+        <Ionicons name={icon} size={21} color="#9AA8BD" />
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="#94a3b8"
+          multiline
+          textAlignVertical="top"
+          style={styles.textAreaInput}
+        />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -424,6 +608,12 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
   },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 13,
+    color: "#2563eb",
+    fontWeight: "800",
+  },
   infoCard: {
     backgroundColor: COLORS.card,
     borderRadius: 28,
@@ -462,6 +652,32 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: COLORS.text,
     minHeight: 56,
+  },
+  textAreaBox: {
+    minHeight: 104,
+    borderWidth: 1.3,
+    borderColor: COLORS.border,
+    borderRadius: 17,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+  },
+  textAreaInput: {
+    flex: 1,
+    minHeight: 76,
+    fontSize: 17,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+  infoHint: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748b",
+    fontWeight: "700",
+    marginTop: -2,
   },
   twoColumnRow: {
     flexDirection: "row",

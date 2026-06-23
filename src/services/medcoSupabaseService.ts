@@ -65,10 +65,17 @@ export type PatientProfileSummary = {
   patientCode: string | null;
 };
 
-export type ClinicianAccessRequestStatus =
-  | "pending"
-  | "approved"
-  | "rejected";
+export type PatientPersonalDetails = {
+  fullName: string;
+  email: string;
+  phone: string;
+  dateOfBirth: string;
+  gender: string;
+  allergies: string;
+  conditions: string;
+};
+
+export type ClinicianAccessRequestStatus = "pending" | "approved" | "rejected";
 
 export type ClinicianAccessRequest = {
   id: string;
@@ -153,6 +160,18 @@ type SupabasePatientProfileRow = {
   full_name: string | null;
   email: string | null;
   patient_code: string | null;
+};
+
+type SupabasePatientPersonalDetailsRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  phone: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  allergies: string[] | null;
+  conditions: string[] | null;
+  role: string | null;
 };
 
 type SupabaseClinicianAccessRequestRow = {
@@ -303,6 +322,50 @@ function getMedicationNameForIngredient(
   return matchingDose?.medicationName ?? null;
 }
 
+function textToArray(value: string) {
+  return value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function arrayToText(value: string[] | null | undefined) {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+
+  return value
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function nullableText(value: string) {
+  const trimmed = value.trim();
+
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function getMetadataString(
+  metadata: Record<string, unknown>,
+  key: string,
+): string {
+  const value = metadata[key];
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  return "";
+}
+
 export async function getCurrentUserId() {
   const { data, error } = await supabase.auth.getUser();
 
@@ -340,6 +403,132 @@ export async function getPatientProfileForCurrentUser(): Promise<PatientProfileS
     email: data.email?.trim() || null,
     patientCode: data.patient_code?.trim() || null,
   };
+}
+
+export async function getPatientPersonalDetailsFromSupabase(): Promise<PatientPersonalDetails | null> {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    return null;
+  }
+
+  const { data: authData } = await supabase.auth.getUser();
+  const metadata = (authData.user?.user_metadata ?? {}) as Record<
+    string,
+    unknown
+  >;
+
+  const { data: profileData, error: profileError } = await supabase
+    .from("profiles")
+    .select(
+      "id, full_name, email, phone, gender, date_of_birth, allergies, conditions, role",
+    )
+    .eq("id", userId)
+    .maybeSingle<SupabasePatientPersonalDetailsRow>();
+
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
+
+  const { data: medicalProfileData, error: medicalProfileError } =
+    await supabase
+      .from("medco_medical_profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle<SupabaseMedicalProfileRow>();
+
+  if (medicalProfileError) {
+    throw new Error(medicalProfileError.message);
+  }
+
+  return {
+    fullName:
+      profileData?.full_name?.trim() ||
+      getMetadataString(metadata, "full_name") ||
+      authData.user?.email?.split("@")[0] ||
+      "",
+    email: profileData?.email?.trim() || authData.user?.email || "",
+    phone: profileData?.phone?.trim() || getMetadataString(metadata, "phone"),
+    dateOfBirth:
+      profileData?.date_of_birth?.trim() ||
+      getMetadataString(metadata, "date_of_birth"),
+    gender:
+      profileData?.gender?.trim() || getMetadataString(metadata, "gender"),
+    allergies:
+      arrayToText(profileData?.allergies) ||
+      medicalProfileData?.allergies?.trim() ||
+      getMetadataString(metadata, "allergies"),
+    conditions:
+      arrayToText(profileData?.conditions) ||
+      medicalProfileData?.chronic_conditions?.trim() ||
+      getMetadataString(metadata, "conditions"),
+  };
+}
+
+export async function savePatientPersonalDetailsToSupabase(
+  details: PatientPersonalDetails,
+) {
+  const userId = await getCurrentUserId();
+
+  if (!userId) {
+    throw new Error("Please sign in before saving personal details.");
+  }
+
+  const allergiesArray = textToArray(details.allergies);
+  const conditionsArray = textToArray(details.conditions);
+
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", userId)
+    .maybeSingle<{ role: string | null }>();
+
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      id: userId,
+      full_name: details.fullName.trim(),
+      email: nullableText(details.email),
+      phone: nullableText(details.phone),
+      role: existingProfile?.role || "patient",
+      gender: nullableText(details.gender),
+      date_of_birth: nullableText(details.dateOfBirth),
+      allergies: allergiesArray,
+      conditions: conditionsArray,
+      updated_at: new Date().toISOString(),
+    },
+    {
+      onConflict: "id",
+    },
+  );
+
+  if (profileError) {
+    throw new Error(profileError.message);
+  }
+
+  const { data: existingMedicalProfile } = await supabase
+    .from("medco_medical_profiles")
+    .select("notes")
+    .eq("user_id", userId)
+    .maybeSingle<{ notes: string | null }>();
+
+  const { error: medicalProfileError } = await supabase
+    .from("medco_medical_profiles")
+    .upsert(
+      {
+        user_id: userId,
+        allergies: details.allergies.trim(),
+        chronic_conditions: details.conditions.trim(),
+        notes: existingMedicalProfile?.notes ?? "",
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "user_id",
+      },
+    );
+
+  if (medicalProfileError) {
+    throw new Error(medicalProfileError.message);
+  }
 }
 
 export async function getClinicianAccessRequestsForPatient(): Promise<
@@ -598,8 +787,14 @@ export async function refreshDrugInteractionResultsForSchedule(
       checked_at: checkedAt,
       source: "drug_interactions_master",
       prescription_id: null,
-      medication_a: getMedicationNameForIngredient(schedule.doses, interaction.drugA),
-      medication_b: getMedicationNameForIngredient(schedule.doses, interaction.drugB),
+      medication_a: getMedicationNameForIngredient(
+        schedule.doses,
+        interaction.drugA,
+      ),
+      medication_b: getMedicationNameForIngredient(
+        schedule.doses,
+        interaction.drugB,
+      ),
       ingredient_a: interaction.drugA,
       ingredient_b: interaction.drugB,
     };
